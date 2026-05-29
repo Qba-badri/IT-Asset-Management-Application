@@ -9,6 +9,7 @@ import RoleMaster from './features/Admin/RoleMaster';
 import PermissionMaster from './features/Admin/PermissionMaster';
 import CategoryMaster from './features/Admin/CategoryMaster';
 import { BrandMaster, VendorMaster, ConditionMaster, StatusMaster, DisposalMethodMaster, PlanMaster } from './features/Admin/MasterPages';
+import SystemSettings from './features/Admin/SystemSettings';
 import AssetManagement from './features/Assets/AssetManagement';
 import AssetDetails from './features/Assets/AssetDetails';
 import AssetAuditLog from './features/Assets/AssetAuditLog';
@@ -62,6 +63,7 @@ function App() {
                 <Route path="admin/statuses" element={<StatusMaster />} />
                 <Route path="admin/disposal-methods" element={<DisposalMethodMaster />} />
                 <Route path="admin/plans" element={<PlanMaster />} />
+                <Route path="admin/settings" element={<SystemSettings />} />
                 <Route path="profile" element={<UserProfile />} />
                 <Route path="settings" element={<UserSettings />} />
 

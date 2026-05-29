@@ -3,10 +3,10 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
     Plus, Eye, Edit, Trash2, User, Wrench, Recycle,
     Check, Monitor, ImageIcon, Loader2, Upload, X,
-    Search, ArrowUpDown, Download, FileSpreadsheet, FileText as FileIcon
+    Search, ArrowUpDown, Download, FileSpreadsheet, FileText as FileIcon, Settings2
 } from 'lucide-react';
 import {
-    DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+    DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator
 } from '../../components/ui/dropdown-menu';
 import { assetService, Asset } from '../../services/assetService';
 import { userService, User as UserType } from '../../services/userService';
@@ -740,10 +740,10 @@ const AssetManagement: React.FC = () => {
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Button variant="outline" className="gap-2">
-                                <Download className="h-4 w-4" /> Export
+                                <Settings2 className="h-4 w-4" /> Manage Data
                             </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuContent align="end" className="w-56">
                             <DropdownMenuItem onClick={handleExportCSV} className="gap-2">
                                 <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
                                 Export to Excel (.csv)
@@ -752,6 +752,19 @@ const AssetManagement: React.FC = () => {
                                 <FileIcon className="h-4 w-4 text-primary" />
                                 Download PDF Report
                             </DropdownMenuItem>
+                            {currentUser?.role?.name === 'Admin' && (
+                                <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onClick={handleDownloadSample} className="gap-2">
+                                        <Download className="h-4 w-4 text-blue-600" />
+                                        Download Import Sample
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={handleImportClick} className="gap-2">
+                                        <Upload className="h-4 w-4 text-purple-600" />
+                                        Import Data
+                                    </DropdownMenuItem>
+                                </>
+                            )}
                         </DropdownMenuContent>
                     </DropdownMenu>
 
@@ -764,14 +777,6 @@ const AssetManagement: React.FC = () => {
                                 accept=".csv"
                                 onChange={handleFileImport}
                             />
-                            <Button variant="outline" onClick={handleDownloadSample} className="gap-2">
-                                <Download className="h-4 w-4" />
-                                Download Sample
-                            </Button>
-                            <Button variant="outline" onClick={handleImportClick} className="gap-2">
-                                <Upload className="h-4 w-4" />
-                                Import
-                            </Button>
                             <Button onClick={handleOpenCreate}><Plus className="h-4 w-4 mr-2" />Add Asset</Button>
                         </>
                     )}

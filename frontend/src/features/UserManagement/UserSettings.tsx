@@ -2,10 +2,9 @@ import React, { useState, useEffect } from 'react';
 import {
     Lock, Bell, Eye, EyeOff,
     Monitor, Globe, Moon, Sun, Laptop,
-    Save, Loader2, Check, ShieldCheck, Activity, Bot
+    Save, Loader2, Check, ShieldCheck, Activity
 } from 'lucide-react';
 import { authService } from '../../services/authService';
-import { settingsService } from '../../services/settingsService';
 import auditService, { AuditEvent } from '../../services/auditService';
 import { useToast } from '../../context/ToastContext';
 import { PageHeader } from '../../components/shared/PageHeader';
@@ -28,7 +27,6 @@ const UserSettings: React.FC = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [showNewPassword, setShowNewPassword] = useState(false);
     const [securityActivity, setSecurityActivity] = useState<AuditEvent[]>([]);
-    const [aiKey, setAiKey] = useState('');
 
     const {
         values: passwordData,
@@ -69,7 +67,6 @@ const UserSettings: React.FC = () => {
     useEffect(() => {
         loadSettings();
         loadSecurityActivity();
-        loadAiSettings();
     }, []);
 
     useEffect(() => {
@@ -107,27 +104,6 @@ const UserSettings: React.FC = () => {
             setSecurityActivity(activity);
         } catch (error) {
             console.error('Failed to load security activity', error);
-        }
-    };
-
-    const loadAiSettings = async () => {
-        try {
-            const setting = await settingsService.getSetting('OPENAI_API_KEY');
-            if (setting && setting.value) setAiKey(setting.value);
-        } catch (error) {
-            console.error('Failed to load AI settings (may not be admin)', error);
-        }
-    };
-
-    const handleSaveAiSettings = async () => {
-        try {
-            setLoading(true);
-            await settingsService.updateSetting('OPENAI_API_KEY', aiKey);
-            showToast('AI Settings saved successfully', 'success');
-        } catch (error: any) {
-            showToast(error.message || 'Failed to save AI settings', 'error');
-        } finally {
-            setLoading(false);
         }
     };
 
@@ -210,7 +186,7 @@ const UserSettings: React.FC = () => {
             />
 
             <Tabs defaultValue="security" className="w-full">
-                <TabsList className="grid w-full grid-cols-4 max-w-2xl">
+                <TabsList className="grid w-full grid-cols-3 max-w-md">
                     <TabsTrigger value="security" className="gap-2">
                         <Lock className="h-4 w-4" />
                         Security
@@ -222,10 +198,6 @@ const UserSettings: React.FC = () => {
                     <TabsTrigger value="appearance" className="gap-2">
                         <Monitor className="h-4 w-4" />
                         Appearance
-                    </TabsTrigger>
-                    <TabsTrigger value="ai-config" className="gap-2">
-                        <Bot className="h-4 w-4" />
-                        AI Configuration
                     </TabsTrigger>
                 </TabsList>
 
@@ -520,42 +492,6 @@ const UserSettings: React.FC = () => {
                                     <Button onClick={handleSaveSettings} disabled={loading}>
                                         {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
                                         Save Changes
-                                    </Button>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </TabsContent>
-
-                    {/* AI Configuration */}
-                    <TabsContent value="ai-config">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>AI Bot Configuration</CardTitle>
-                                <CardDescription>
-                                    Configure the AI provider and API keys for the ITAM Assistant Bot.
-                                    This requires an OpenAI API key.
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-6">
-                                <div className="space-y-4">
-                                    <div className="space-y-2">
-                                        <Label htmlFor="openai_key">OpenAI API Key</Label>
-                                        <Input
-                                            id="openai_key"
-                                            type="password"
-                                            placeholder="sk-..."
-                                            value={aiKey}
-                                            onChange={(e) => setAiKey(e.target.value)}
-                                        />
-                                        <p className="text-xs text-muted-foreground">
-                                            This key will be used to power the natural language queries in the assistant.
-                                        </p>
-                                    </div>
-                                </div>
-                                <div className="flex justify-end pt-4">
-                                    <Button onClick={handleSaveAiSettings} disabled={loading}>
-                                        {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-                                        Save AI Key
                                     </Button>
                                 </div>
                             </CardContent>

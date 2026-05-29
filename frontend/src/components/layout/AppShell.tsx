@@ -85,6 +85,7 @@ const navigation: NavEntry[] = [
       { label: "Conditions", icon: ClipboardList, path: "/dashboard/admin/conditions" },
       { label: "Statuses", icon: Activity, path: "/dashboard/admin/statuses" },
       { label: "Disposal Methods", icon: Archive, path: "/dashboard/admin/disposal-methods" },
+      { label: "System Settings", icon: Settings, path: "/dashboard/admin/settings" },
     ],
   },
 ];
