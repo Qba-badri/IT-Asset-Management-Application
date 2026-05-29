@@ -1,0 +1,38 @@
+import { LicenseAssignment } from './license-assignment.entity';
+import { LicenseRenewal } from './license-renewal.entity';
+import { Vendor } from './vendor.entity';
+import { LicensePlan } from './license-plan.entity';
+export declare class License {
+    id: number;
+    softwareName: string;
+    vendor: string;
+    vendorId: number;
+    vendorObj: Vendor;
+    category: string;
+    type: string;
+    planName: string;
+    licensePlanId: number;
+    licensePlan: LicensePlan;
+    productKey: string;
+    contractId: string;
+    tenantId: string;
+    totalSeats: number;
+    usedSeats: number;
+    cloudMode: boolean;
+    unitPrice: number;
+    totalCost: number;
+    currency: string;
+    billingFrequency: string;
+    commitmentTerm: string;
+    purchaseDate: Date;
+    expiryDate: Date;
+    nextRenewalDate: Date;
+    noticePeriodDays: number;
+    renewalStatus: string;
+    complianceRisk: string;
+    notes: string;
+    assignments: LicenseAssignment[];
+    renewals: LicenseRenewal[];
+    createdAt: Date;
+    updatedAt: Date;
+}

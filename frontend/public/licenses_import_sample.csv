@@ -1,0 +1,5 @@
+Software Name,Vendor,Category,Type,Plan Name,Product Key,Contract ID,Tenant ID,Total Seats,Used Seats,Unit Price,Currency,Billing Frequency,Purchase Date,Expiry Date,Notes
+Microsoft Office 365,Microsoft,saas_sub,user,Enterprise E5,AAAAA-BBBBB-CCCCC-DDDDD-EEEEE,CONT-12345,TENANT-001,100,85,25.50,USD,monthly,2023-01-01,2024-12-31,Standard company productivity suite
+Adobe Creative Cloud,Adobe,saas_sub,user,All Apps,FF-GG-HH-II-JJ,CONT-67890,TENANT-002,10,8,80.00,USD,monthly,2023-06-15,2024-06-14,Design team subscription
+Windows 11 Pro,Microsoft,on_prem_perpetual,device,Pro,11111-22222-33333-44444-55555,,,50,45,150.00,USD,one_time,2023-03-10,,OEM licenses for new laptops
+Slack,Salesforce,saas_usage,user,Pro,N/A,CONT-55555,TENANT-003,200,195,12.50,USD,monthly,2023-02-01,2024-01-31,Collaboration tool

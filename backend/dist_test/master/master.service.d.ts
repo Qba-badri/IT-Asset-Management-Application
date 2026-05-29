@@ -1,0 +1,34 @@
+import { OnModuleInit } from '@nestjs/common';
+import { Repository } from 'typeorm';
+import { Brand } from '../entities/brand.entity';
+import { Vendor } from '../entities/vendor.entity';
+import { Lookup } from '../entities/lookup.entity';
+import { LicensePlan } from '../entities/license-plan.entity';
+export declare class MasterService implements OnModuleInit {
+    private readonly brandRepo;
+    private readonly vendorRepo;
+    private readonly lookupRepo;
+    private readonly planRepo;
+    constructor(brandRepo: Repository<Brand>, vendorRepo: Repository<Vendor>, lookupRepo: Repository<Lookup>, planRepo: Repository<LicensePlan>);
+    onModuleInit(): Promise<void>;
+    private seedLookups;
+    private seedVendorsAndPlans;
+    findAllBrands(): Promise<Brand[]>;
+    createBrand(data: any): Promise<Brand[]>;
+    updateBrand(id: number, data: any): Promise<Brand>;
+    deleteBrand(id: number): Promise<import("typeorm").DeleteResult>;
+    findAllVendors(): Promise<Vendor[]>;
+    createVendor(data: any): Promise<Vendor[]>;
+    updateVendor(id: number, data: any): Promise<Vendor>;
+    deleteVendor(id: number): Promise<import("typeorm").DeleteResult>;
+    findAllPlans(): Promise<LicensePlan[]>;
+    findPlansByVendor(vendorId: number): Promise<LicensePlan[]>;
+    createPlan(data: any): Promise<LicensePlan[]>;
+    updatePlan(id: number, data: any): Promise<LicensePlan>;
+    deletePlan(id: number): Promise<import("typeorm").DeleteResult>;
+    findLookupsByType(type: string): Promise<Lookup[]>;
+    findAllLookups(): Promise<Lookup[]>;
+    createLookup(data: any): Promise<Lookup[]>;
+    updateLookup(id: number, data: any): Promise<Lookup>;
+    deleteLookup(id: number): Promise<import("typeorm").DeleteResult>;
+}

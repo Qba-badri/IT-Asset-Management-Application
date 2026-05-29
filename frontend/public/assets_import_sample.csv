@@ -1,0 +1,4 @@
+Asset Tag,Name,Category,Brand,Model,Serial Number,Status,Condition,Purchase Date,Purchase Cost,Vendor,Warranty Expiry,Notes,Hostname,PO Number,Invoice Number,Cost Center,Useful Life Years,Salvage Value
+ASSET-001,Dell Latitude 5420,laptop,Dell,Latitude 5420,SN123456,available,new,2024-01-01,1200.00,Dell Tech,2027-01-01,Sample asset,LAP-DELL-01,PO-1001,INV-2001,IT-DEPT,5,200.00
+ASSET-002,MacBook Pro 14,laptop,Apple,M2 Pro,SN789012,available,new,2024-02-15,1999.99,Apple Store,2025-02-15,Designer laptop,MAC-01,PO-1002,INV-2002,DESIGN-DEPT,4,400.00
+ASSET-003,iPhone 15 Pro,mobile,Apple,iPhone 15 Pro,SN345678,available,new,2024-03-10,999.00,Apple Store,2025-03-10,Sales team phone,MOB-01,PO-1003,INV-2003,SALES-DEPT,2,100.00
