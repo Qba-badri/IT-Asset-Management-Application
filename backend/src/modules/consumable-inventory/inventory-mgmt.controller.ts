@@ -10,6 +10,7 @@ import {
     Req,
     Query,
     ParseIntPipe,
+    ForbiddenException,
 } from '@nestjs/common';
 import { InventoryManagementService } from './inventory-mgmt.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -21,6 +22,8 @@ import {
     CreateInventoryPurchaseDto,
     CreateInventoryAssignmentDto,
     CreateInventoryReturnDto,
+    AdjustStockDto,
+    DeleteAssignmentDto,
 } from './dto/inventory-mgmt.dto';
 
 @Controller('api/inventory-management')
@@ -96,6 +99,13 @@ export class InventoryManagementController {
         return this.service.deleteItem(id);
     }
 
+    // --- Stock Adjustment ---
+    @Post('items/adjust-stock')
+    @Permissions('inventory-mgmt.manage')
+    async adjustStock(@Body() dto: AdjustStockDto, @Req() req: any) {
+        return this.service.adjustStock(dto, req.user.id);
+    }
+
     // --- Purchases ---
     @Post('purchases')
     @Permissions('inventory-mgmt.manage')
@@ -138,6 +148,21 @@ export class InventoryManagementController {
         @Req() req: any
     ) {
         return this.service.returnAssignment(id, dto, req.user.id);
+    }
+
+    // Admin-only correction for a mistakenly-created assignment on a non-refundable item
+    // (non-refundable items have no physical return flow, so this is their only fix path).
+    @Post('assignments/:id/delete-mistake')
+    @Permissions('inventory-mgmt.manage')
+    async deleteMistakenAssignment(
+        @Param('id', ParseIntPipe) id: number,
+        @Body() dto: DeleteAssignmentDto,
+        @Req() req: any,
+    ) {
+        if (req.user.role?.name !== 'Admin') {
+            throw new ForbiddenException('Only Admins can delete a mistaken assignment');
+        }
+        return this.service.deleteMistakenAssignment(id, dto, req.user.id);
     }
 
     // --- Returns ---

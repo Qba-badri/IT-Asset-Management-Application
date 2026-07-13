@@ -72,6 +72,7 @@ export class LicensesService {
     licenseId: number,
     userId: number,
     notes?: string,
+    performedById?: number,
   ): Promise<LicenseAssignment> {
     const license = await this.findOne(licenseId);
 
@@ -116,11 +117,11 @@ export class LicensesService {
     await this.licenseRepository.save(license);
 
     const savedAssignment = await this.assignmentRepository.save(assignment);
-    await this.logHistory(licenseId, LicenseAction.ASSIGNED, undefined, userId, notes);
+    await this.logHistory(licenseId, LicenseAction.ASSIGNED, performedById, userId, notes);
     return savedAssignment;
   }
 
-  async unassignLicense(assignmentId: number, reason?: string): Promise<void> {
+  async unassignLicense(assignmentId: number, reason?: string, performedById?: number): Promise<void> {
     const assignment = await this.assignmentRepository.findOne({
       where: { id: assignmentId },
       relations: ['license'],
@@ -132,7 +133,7 @@ export class LicensesService {
     if (license) {
       license.usedSeats = Math.max(0, Number(license.usedSeats) - 1);
       await this.licenseRepository.save(license);
-      await this.logHistory(license.id, LicenseAction.UNASSIGNED, undefined, assignment.userId, reason ? `Reason: ${reason}` : 'No reason provided');
+      await this.logHistory(license.id, LicenseAction.UNASSIGNED, performedById, assignment.userId, reason ? `Reason: ${reason}` : 'No reason provided');
     }
 
     await this.assignmentRepository.delete(assignmentId);
@@ -157,14 +158,14 @@ export class LicensesService {
     return license;
   }
 
-  async create(data: Partial<License>): Promise<License> {
+  async create(data: Partial<License>, performedById?: number): Promise<License> {
     // Determine next renewal date if not provided
     if (!data.nextRenewalDate && data.expiryDate) {
       data.nextRenewalDate = data.expiryDate;
     }
     const license = this.licenseRepository.create(data);
     const saved = await this.licenseRepository.save(license);
-    await this.logHistory(saved.id, LicenseAction.CREATED, undefined, undefined, 'License record created');
+    await this.logHistory(saved.id, LicenseAction.CREATED, performedById, undefined, 'License record created');
     return saved;
   }
 
@@ -185,7 +186,19 @@ export class LicensesService {
       throw new BadRequestException('Cannot delete license while seats are assigned. Unassign all seats before deleting.');
     }
 
-    const result = await this.licenseRepository.delete(id);
+    // Licenses that were ever assigned appear in audit reports — they must be
+    // terminated/expired, not deleted, to keep audit trails intact.
+    const assignmentHistoryCount = await this.historyRepository.count({
+      where: [
+        { licenseId: id, action: LicenseAction.ASSIGNED },
+        { licenseId: id, action: LicenseAction.UNASSIGNED },
+      ],
+    });
+    if (assignmentHistoryCount > 0) {
+      throw new BadRequestException('This license has assignment history and appears in audit reports. It cannot be deleted — mark it terminated or let it expire instead.');
+    }
+
+    const result = await this.licenseRepository.softDelete(id);
     if (result.affected === 0) {
       throw new NotFoundException(`License with ID ${id} not found`);
     }
@@ -347,7 +360,7 @@ export class LicensesService {
 
     for (const data of licenses) {
       try {
-        await this.create(data);
+        await this.create(data, userId);
         success++;
       } catch (err) {
         failed++;

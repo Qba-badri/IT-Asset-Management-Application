@@ -78,7 +78,7 @@ export class AssetsController {
   @Post(':id/undeploy')
   @Permissions('assets.manage')
   async undeploy(@Param('id', ParseIntPipe) id: number, @Body() body: UndeployAssetDto) {
-    return this.assetsService.undeploy(id, body.reason, body.performedBy);
+    return this.assetsService.undeploy(id, body.reason, body.condition, body.performedBy);
   }
 
   @Post(':id/maintenance')

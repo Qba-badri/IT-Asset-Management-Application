@@ -58,7 +58,7 @@ export interface AdjustStockInput {
   locationId: number;
   newQuantity: number;
   reason?: string;
-  notes?: string;
+  notes: string;
 }
 
 export interface InitialStockInput {

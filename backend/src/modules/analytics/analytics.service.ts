@@ -38,7 +38,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Asset, AssetStatus, AcquisitionType } from '../../entities/asset.entity';
-import { AssetUnit, AssetUnitStatus } from '../../entities/asset-unit.entity';
+import { AssetUnit } from '../../entities/asset-unit.entity';
 import { StockByLocation } from '../../entities/stock-by-location.entity';
 import { CatalogItem } from '../../entities/catalog-item.entity';
 import { InventoryItem } from '../../entities/inventory-item.entity';
@@ -46,11 +46,12 @@ import { InventoryPurchase } from '../../entities/inventory-purchase.entity';
 import { InventoryTransaction, InventoryTransactionType } from '../../entities/inventory-transaction.entity';
 import { License } from '../../entities/license.entity';
 import { User } from '../../entities/user.entity';
-import { Assignment, AssignmentStatus } from '../../entities/assignment.entity';
+import { Assignment } from '../../entities/assignment.entity';
 import { ReturnTransaction } from '../../entities/return-transaction.entity';
-import { AssetCondition } from '../../entities/asset-unit.entity';
+import { InventoryAssignment, InventoryAssignmentStatus } from '../../entities/inventory-assignment.entity';
+import { InventoryReturn } from '../../entities/inventory-return.entity';
 import { AssetHistory } from '../../entities/asset-history.entity';
-import { StockLedger, LedgerReason } from '../../entities/stock-ledger.entity';
+import { StockLedger } from '../../entities/stock-ledger.entity';
 import { AuditLog } from '../../entities/audit-log.entity';
 import { AuditEvent, AuditAction } from '../../entities/audit-event.entity';
 import { SettingsService } from '../settings/settings.service';
@@ -105,6 +106,12 @@ export class AnalyticsService {
 
     @InjectRepository(ReturnTransaction)
     private returnTransactionRepository: Repository<ReturnTransaction>,
+
+    @InjectRepository(InventoryAssignment)
+    private inventoryAssignmentRepository: Repository<InventoryAssignment>,
+
+    @InjectRepository(InventoryReturn)
+    private inventoryReturnRepository: Repository<InventoryReturn>,
 
     @InjectRepository(AssetHistory)
     private assetHistoryRepository: Repository<AssetHistory>,
@@ -246,12 +253,20 @@ export class AnalyticsService {
       ? await this.userRepository.count()
       : 1;
 
-    const activeAssignments = await this.applyFilters(
-      this.assignmentRepository.createQueryBuilder('assign'),
-      'assign', filters, user,
-    )
-      .andWhere('assign.status = :status', { status: AssignmentStatus.ACTIVE })
-      .getCount();
+    // Active assignments = bulk consumable assignments out + serialized assets deployed
+    const activeBulkQuery = this.inventoryAssignmentRepository
+      .createQueryBuilder('ia')
+      .where('ia.status = :s', { s: InventoryAssignmentStatus.ASSIGNED });
+    const activeSerializedQuery = this.assetRepository
+      .createQueryBuilder('asset')
+      .where('asset.status = :s', { s: AssetStatus.DEPLOYED })
+      .andWhere('asset.deletedAt IS NULL');
+    if (user && user.role?.name !== 'Admin') {
+      activeBulkQuery.andWhere('ia.userId = :userId', { userId: user.id });
+      activeSerializedQuery.andWhere('asset.assignedToId = :userId', { userId: user.id });
+    }
+    const activeAssignments =
+      (await activeBulkQuery.getCount()) + (await activeSerializedQuery.getCount());
 
     // Total asset value = sum of purchase costs, grouped by currency
     const assetValueByCurrency = await this.applyFilters(
@@ -400,36 +415,32 @@ export class AnalyticsService {
   // ─────────────────────────────────────────────
   //  KPI 4 — Serialized Asset Units: In-Stock, Assigned, In-Repair, Written-Off
   //
-  //  To track a new AssetUnitStatus, add a new count query
-  //  mirroring the pattern below and expose the field.
+  //  Sourced from the legacy Asset entity's status field (the same table
+  //  backing KPI 1-3) rather than the newer AssetUnit/CatalogItem table —
+  //  the app's day-to-day usage goes entirely through Asset, so AssetUnit
+  //  is normally empty and made this card show all zeros.
   // ─────────────────────────────────────────────
-  async getSerializedUnitKpis(filters: DashboardFilters = {}) {
-    // Counts for all relevant lifecycle statuses in asset_units
-    const query = this.assetUnitRepository
-      .createQueryBuilder('u')
-      .select('u.status', 'status')
-      .addSelect('COUNT(u.id)', 'count')
-      .groupBy('u.status');
-    // asset_units only has a locationId column of the dashboard's filter
-    // dimensions — apply that one directly rather than via the generic
-    // applyFilters() helper, which assumes columns (departmentId,
-    // categoryId, ...) that don't exist on this table.
-    if (filters.locationId) {
-      query.andWhere('u.locationId = :locId', { locId: filters.locationId });
-    }
-    const statusBreakdown = await query.getRawMany();
+  async getSerializedUnitKpis(filters: DashboardFilters = {}, user?: any) {
+    const statusBreakdown = await this.applyFilters(
+      this.assetRepository.createQueryBuilder('asset'),
+      'asset', filters, user,
+    )
+      .select('asset.status', 'status')
+      .addSelect('COUNT(asset.id)', 'count')
+      .groupBy('asset.status')
+      .getRawMany();
 
-    const find = (s: AssetUnitStatus) =>
+    const find = (s: AssetStatus) =>
       parseInt(statusBreakdown.find(r => r.status === s)?.count || '0');
 
     return {
       statusBreakdown,
-      inStock: find(AssetUnitStatus.IN_STOCK),
-      assigned: find(AssetUnitStatus.ASSIGNED),
-      inRepair: find(AssetUnitStatus.IN_REPAIR) + find(AssetUnitStatus.IN_MAINTENANCE),
-      writtenOff: find(AssetUnitStatus.WRITTEN_OFF),
-      disposed: find(AssetUnitStatus.DISPOSED),
-      lost: find(AssetUnitStatus.LOST),
+      inStock: find(AssetStatus.AVAILABLE),
+      assigned: find(AssetStatus.DEPLOYED),
+      inRepair: find(AssetStatus.MAINTENANCE) + find(AssetStatus.REPAIR) + find(AssetStatus.IN_REPAIR),
+      writtenOff: find(AssetStatus.DISPOSED) + find(AssetStatus.RETIRED),
+      disposed: find(AssetStatus.DISPOSED),
+      lost: find(AssetStatus.LOST) + find(AssetStatus.STOLEN),
       total: statusBreakdown.reduce((acc, r) => acc + parseInt(r.count), 0),
     };
   }
@@ -702,68 +713,101 @@ export class AnalyticsService {
   //  KPI 11 — Return Rate (last 30 days)
   //  KPI 12 — Items Returned in Poor/Damaged Condition
   //
+  //  Sources: inventory_assignments / inventory_returns (bulk consumables)
+  //  and deployed assets (serialized hardware).
   //  Return rate = returns in 30d / assignments created in 30d.
   //  To change the time window, update the `thirtyDaysAgo` variable.
   // ─────────────────────────────────────────────
   async getAssignmentKpis(filters: DashboardFilters = {}, user?: any) {
     const now = new Date();
     const thirtyDaysAgo = new Date(now); thirtyDaysAgo.setDate(now.getDate() - 30);
+    const isAdmin = !user || user.role?.name === 'Admin';
 
-    // KPI 9: All currently active assignments
-    const active = await this.applyFilters(
-      this.assignmentRepository.createQueryBuilder('assign'),
-      'assign', filters, user,
+    // Non-Admin users see only assignments made to them
+    const scopeAssignments = (qb: SelectQueryBuilder<InventoryAssignment>) => {
+      if (!isAdmin) qb.andWhere('ia.userId = :userId', { userId: user.id });
+      return qb;
+    };
+    const scopeReturns = (qb: SelectQueryBuilder<InventoryReturn>) => {
+      if (!isAdmin) {
+        qb.innerJoin('ir.assignment', 'ria').andWhere('ria.userId = :userId', { userId: user.id });
+      }
+      return qb;
+    };
+
+    // KPI 9: Bulk consumable assignments currently out
+    const bulkActive = await scopeAssignments(
+      this.inventoryAssignmentRepository.createQueryBuilder('ia'),
     )
-      .andWhere('assign.status = :s', { s: AssignmentStatus.ACTIVE })
+      .where('ia.status = :s', { s: InventoryAssignmentStatus.ASSIGNED })
       .getCount();
 
-    // KPI 9: Breakdown — serialized vs. bulk-qty
-    const serializedActive = await this.applyFilters(
-      this.assignmentRepository.createQueryBuilder('assign'),
-      'assign', filters, user,
+    // KPI 9: Serialized hardware currently deployed to a user
+    const serializedQuery = this.assetRepository
+      .createQueryBuilder('asset')
+      .where('asset.status = :s', { s: AssetStatus.DEPLOYED })
+      .andWhere('asset.deletedAt IS NULL');
+    if (!isAdmin) {
+      serializedQuery.andWhere('asset.assignedToId = :userId', { userId: user.id });
+    }
+    const serializedActive = await serializedQuery.getCount();
+
+    const active = bulkActive + serializedActive;
+
+    // KPI 10: Active bulk assignments past their expected return date
+    const overdueImplicit = await scopeAssignments(
+      this.inventoryAssignmentRepository.createQueryBuilder('ia'),
     )
-      .andWhere('assign.status = :s', { s: AssignmentStatus.ACTIVE })
-      .andWhere('assign.assetUnitId IS NOT NULL')
+      .where('ia.status = :s', { s: InventoryAssignmentStatus.ASSIGNED })
+      .andWhere('ia.expectedReturnDate IS NOT NULL')
+      .andWhere('ia.expectedReturnDate < :now', { now })
       .getCount();
 
-    // KPI 10: Assignments that are explicitly marked OVERDUE
-    const overdueExplicit = await this.applyFilters(
-      this.assignmentRepository.createQueryBuilder('assign'),
-      'assign', filters, user,
-    )
-      .andWhere('assign.status = :s', { s: AssignmentStatus.OVERDUE })
-      .getCount();
+    const totalOverdue = overdueImplicit;
 
-    // KPI 10: Also count ACTIVE ones past their due date (not yet status-updated)
-    const overdueImplicit = await this.applyFilters(
-      this.assignmentRepository.createQueryBuilder('assign'),
-      'assign', filters, user,
-    )
-      .andWhere('assign.status = :s', { s: AssignmentStatus.ACTIVE })
-      .andWhere('assign.dueDate < :now', { now })
-      .andWhere('assign.dueDate IS NOT NULL')
-      .getCount();
-
-    const totalOverdue = overdueExplicit + overdueImplicit;
+    // Serialized issue/return activity comes from asset audit events
+    const scopeAssetEvents = (qb: SelectQueryBuilder<AuditEvent>, userMetaKey: string) => {
+      if (!isAdmin) {
+        qb.andWhere(`(ev.metadata ->> '${userMetaKey}')::int = :userId`, { userId: user.id });
+      }
+      return qb;
+    };
 
     // KPI 11: Assignments created in the last 30 days (denominator for return rate)
-    const assignmentsIn30d = await this.applyFilters(
-      this.assignmentRepository.createQueryBuilder('assign'),
-      'assign', filters, user,
+    const bulkAssignmentsIn30d = await scopeAssignments(
+      this.inventoryAssignmentRepository.createQueryBuilder('ia'),
     )
-      .andWhere('assign.createdAt >= :start', { start: thirtyDaysAgo })
+      .where('ia.createdAt >= :start', { start: thirtyDaysAgo })
       .getCount();
 
-    // KPI 11: Return transactions in the last 30 days (numerator)
-    // Scoped to the same user as the assignments denominator above, so
-    // non-Admin users get a rate over their own data, not the whole org.
-    const returnsQuery = this.returnTransactionRepository
-      .createQueryBuilder('rt')
-      .where('rt.createdAt >= :start', { start: thirtyDaysAgo });
-    if (user && user.role?.name !== 'Admin') {
-      returnsQuery.andWhere('rt.returnedById = :userId', { userId: user.id });
-    }
-    const returnsIn30d = await returnsQuery.getCount();
+    const serializedIssuesIn30d = await scopeAssetEvents(
+      this.auditEventRepository
+        .createQueryBuilder('ev')
+        .where('ev.action = :a', { a: AuditAction.ISSUE })
+        .andWhere('ev.entityType = :et', { et: 'asset' })
+        .andWhere('ev.createdAt >= :start', { start: thirtyDaysAgo }),
+      'assignedToId',
+    ).getCount();
+
+    const assignmentsIn30d = bulkAssignmentsIn30d + serializedIssuesIn30d;
+
+    // KPI 11: Returns processed in the last 30 days (numerator)
+    const bulkReturnsIn30d = await scopeReturns(
+      this.inventoryReturnRepository.createQueryBuilder('ir'),
+    )
+      .where('ir.createdAt >= :start', { start: thirtyDaysAgo })
+      .getCount();
+
+    const serializedReturnsIn30d = await scopeAssetEvents(
+      this.auditEventRepository
+        .createQueryBuilder('ev')
+        .where('ev.action = :a', { a: AuditAction.RETURN })
+        .andWhere('ev.entityType = :et', { et: 'asset' })
+        .andWhere('ev.createdAt >= :start', { start: thirtyDaysAgo }),
+      'previousAssignedToId',
+    ).getCount();
+
+    const returnsIn30d = bulkReturnsIn30d + serializedReturnsIn30d;
 
     // KPI 11: Return rate % — capped at 100
     const returnRate =
@@ -771,17 +815,27 @@ export class AnalyticsService {
         ? Math.min(100, Math.round((returnsIn30d / assignmentsIn30d) * 100))
         : 0;
 
-    // KPI 12: Returns with POOR or DAMAGED condition (last 30 days)
-    const damagedReturnsQuery = this.returnTransactionRepository
-      .createQueryBuilder('rt')
-      .where('rt.conditionOnReturn IN (:...conditions)', {
-        conditions: [AssetCondition.POOR, AssetCondition.DAMAGED],
-      })
-      .andWhere('rt.createdAt >= :start', { start: thirtyDaysAgo });
-    if (user && user.role?.name !== 'Admin') {
-      damagedReturnsQuery.andWhere('rt.returnedById = :userId', { userId: user.id });
-    }
-    const damagedReturns = await damagedReturnsQuery.getCount();
+    // KPI 12: Returns in poor/damaged/lost condition (last 30 days)
+    const damagedConditions = ['poor', 'damaged', 'lost'];
+
+    const bulkDamagedReturns = await scopeReturns(
+      this.inventoryReturnRepository.createQueryBuilder('ir'),
+    )
+      .where('LOWER(ir.condition) IN (:...conditions)', { conditions: damagedConditions })
+      .andWhere('ir.createdAt >= :start', { start: thirtyDaysAgo })
+      .getCount();
+
+    const serializedDamagedReturns = await scopeAssetEvents(
+      this.auditEventRepository
+        .createQueryBuilder('ev')
+        .where('ev.action = :a', { a: AuditAction.RETURN })
+        .andWhere('ev.entityType = :et', { et: 'asset' })
+        .andWhere("LOWER(ev.metadata ->> 'conditionOnReturn') IN (:...conditions)", { conditions: damagedConditions })
+        .andWhere('ev.createdAt >= :start', { start: thirtyDaysAgo }),
+      'previousAssignedToId',
+    ).getCount();
+
+    const damagedReturns = bulkDamagedReturns + serializedDamagedReturns;
 
     const damagedReturnRate =
       returnsIn30d > 0
@@ -791,9 +845,8 @@ export class AnalyticsService {
     return {
       active,
       serializedActive,
-      bulkActive: active - serializedActive,
+      bulkActive,
       totalOverdue,
-      overdueExplicit,
       overdueImplicit,
       returnRate,
       returnsIn30d,
@@ -1070,36 +1123,44 @@ export class AnalyticsService {
   // ─────────────────────────────────────────────
   //  Stock Movement (used in the stock movement bar chart)
   // ─────────────────────────────────────────────
-  async getStockMovement(filters: DashboardFilters = {}, user?: any) {
+  // Sourced from the legacy InventoryTransaction entity (consumable-inventory
+  // module) rather than the newer StockLedger table — the app's real
+  // purchase/assignment/return activity is recorded there, while StockLedger
+  // (catalog/AssetUnit subsystem) is normally empty, which made this chart
+  // show all zeros.
+  async getStockMovement(filters: DashboardFilters = {}) {
     const now = new Date();
     const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-    const reasons = [LedgerReason.PROCUREMENT, LedgerReason.ISSUE, LedgerReason.RETURN, LedgerReason.ADJUSTMENT];
 
-    const thisMonth = await this.applyFilters(
-      this.stockLedgerRepository.createQueryBuilder('sl'),
-      'sl', filters, user,
-    )
-      .select('sl.reason', 'reason')
-      .addSelect('SUM(ABS(sl.quantityChange))', 'count')
-      .andWhere('sl.createdAt >= :start', { start: thisMonthStart })
-      .andWhere('sl.reason IN (:...reasons)', { reasons })
-      .groupBy('sl.reason')
+    const reasonByType: Record<InventoryTransactionType, string> = {
+      [InventoryTransactionType.IN]: 'procurement',
+      [InventoryTransactionType.OUT]: 'issue',
+      [InventoryTransactionType.RETURN]: 'return',
+      [InventoryTransactionType.ADJUSTMENT]: 'adjustment',
+    };
+
+    const mapRows = (rows: { type: InventoryTransactionType; count: string }[]) =>
+      rows.map((r) => ({ reason: reasonByType[r.type], count: r.count }));
+
+    const thisMonthRaw = await this.inventoryTransactionRepository
+      .createQueryBuilder('tx')
+      .select('tx.type', 'type')
+      .addSelect('SUM(tx.quantity)', 'count')
+      .where('tx.transactionDate >= :start', { start: thisMonthStart })
+      .groupBy('tx.type')
       .getRawMany();
 
-    const lastMonth = await this.applyFilters(
-      this.stockLedgerRepository.createQueryBuilder('sl'),
-      'sl', filters, user,
-    )
-      .select('sl.reason', 'reason')
-      .addSelect('SUM(ABS(sl.quantityChange))', 'count')
-      .andWhere('sl.createdAt BETWEEN :start AND :end', { start: lastMonthStart, end: lastMonthEnd })
-      .andWhere('sl.reason IN (:...reasons)', { reasons })
-      .groupBy('sl.reason')
+    const lastMonthRaw = await this.inventoryTransactionRepository
+      .createQueryBuilder('tx')
+      .select('tx.type', 'type')
+      .addSelect('SUM(tx.quantity)', 'count')
+      .where('tx.transactionDate BETWEEN :start AND :end', { start: lastMonthStart, end: lastMonthEnd })
+      .groupBy('tx.type')
       .getRawMany();
 
-    return { thisMonth, lastMonth };
+    return { thisMonth: mapRows(thisMonthRaw), lastMonth: mapRows(lastMonthRaw) };
   }
 
   // ─────────────────────────────────────────────
@@ -1116,7 +1177,7 @@ export class AnalyticsService {
     )
       .orderBy('license.usedSeats', 'DESC')
       .take(8)
-      .select('license.softwareName', 'license_softwareName')
+      .select('COALESCE(license.planName, license.softwareName)', 'license_softwareName')
       .addSelect('license.totalSeats', 'license_totalSeats')
       .addSelect('license.usedSeats', 'license_usedSeats')
       .addSelect('license.expiryDate', 'license_expiryDate')
@@ -1126,15 +1187,35 @@ export class AnalyticsService {
   }
 
   // ─────────────────────────────────────────────
-  //  Recent Activity feed (fallback to audit_log)
+  //  Recent Activity feed — sourced from the audit_events table
+  //  (the append-only event log every mutation writes to; the
+  //  legacy audit_log table is no longer written to).
   // ─────────────────────────────────────────────
   async getRecentActivity(filters: any = {}, user?: any) {
-    const query = this.auditLogRepository.createQueryBuilder('log');
-    this.applyFilters(query, 'log', null, user);
-    if (filters.userId) {
-      query.andWhere('log.userId = :userId', { userId: filters.userId });
+    const query = this.auditEventRepository
+      .createQueryBuilder('ae')
+      .leftJoinAndSelect('ae.actor', 'actor');
+
+    // Role-based scoping — non-Admin users see only their own actions
+    if (user && user.role?.name !== 'Admin') {
+      query.andWhere('ae.actorId = :userId', { userId: user.id });
     }
-    return query.orderBy('log.createdAt', 'DESC').take(10).getMany();
+    if (filters.userId) {
+      query.andWhere('ae.actorId = :filterUserId', { filterUserId: filters.userId });
+    }
+
+    const events = await query.orderBy('ae.createdAt', 'DESC').take(10).getMany();
+
+    return events.map((e) => ({
+      id: e.id,
+      action: e.action,
+      entityType: e.entityType,
+      entityId: e.entityId,
+      actorName: e.actor
+        ? `${e.actor.firstName || ''} ${e.actor.lastName || ''}`.trim() || e.actor.email
+        : 'System',
+      createdAt: e.createdAt,
+    }));
   }
 
   /* ─── Legacy stubs — kept for API backward compatibility ─── */

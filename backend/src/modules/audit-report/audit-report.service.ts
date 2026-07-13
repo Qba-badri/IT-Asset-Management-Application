@@ -250,7 +250,7 @@ export class AuditReportService {
     // name/tag live from the Asset table so renames/legacy events stay accurate.
     const assetIds = [...new Set(rows.filter((r) => r.entityType === 'asset' && r.entityId).map((r) => r.entityId))];
     const assets = assetIds.length
-      ? await this.assetRepo.find({ where: { id: In(assetIds) } })
+      ? await this.assetRepo.find({ where: { id: In(assetIds) }, withDeleted: true })
       : [];
     const assetById = new Map(assets.map((a) => [a.id, a]));
 
@@ -324,6 +324,8 @@ export class AuditReportService {
       .leftJoinAndSelect('lh.performedBy', 'performedBy')
       .leftJoinAndSelect('lh.license', 'license')
       .leftJoinAndSelect('lh.assignedTo', 'assignedTo')
+      // Keep resolving names for soft-deleted licenses — their audit history must stay readable
+      .withDeleted()
       .orderBy('lh.actionDate', 'DESC')
       .take(5000);
 
@@ -354,6 +356,8 @@ export class AuditReportService {
       .createQueryBuilder('it')
       .leftJoinAndSelect('it.performedBy', 'performedBy')
       .leftJoinAndSelect('it.item', 'item')
+      // Keep resolving names for soft-deleted items — their audit history must stay readable
+      .withDeleted()
       .orderBy('it.transactionDate', 'DESC')
       .take(5000);
 
@@ -374,10 +378,10 @@ export class AuditReportService {
 
     const [assignments, returns] = await Promise.all([
       assignmentIds.length
-        ? this.inventoryAssignmentRepo.find({ where: { id: In(assignmentIds) }, relations: ['user'] })
+        ? this.inventoryAssignmentRepo.find({ where: { id: In(assignmentIds) }, relations: ['user'], withDeleted: true })
         : Promise.resolve([]),
       returnIds.length
-        ? this.inventoryReturnRepo.find({ where: { id: In(returnIds) }, relations: ['assignment', 'assignment.user'] })
+        ? this.inventoryReturnRepo.find({ where: { id: In(returnIds) }, relations: ['assignment', 'assignment.user'], withDeleted: true })
         : Promise.resolve([]),
     ]);
 

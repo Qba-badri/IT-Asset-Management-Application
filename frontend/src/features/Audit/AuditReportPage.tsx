@@ -30,12 +30,6 @@ const TABS: { key: TabKey; label: string; module?: AuditReportModule }[] = [
   { key: 'inventory', label: 'Inventory Audit', module: 'Inventory' },
 ];
 
-const MODULE_TO_TAB: Record<AuditReportModule, TabKey> = {
-  Asset: 'assets',
-  License: 'licenses',
-  Inventory: 'inventory',
-};
-
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 function entityCell(e: AuditReportEntry): { name: string; code: string } {
@@ -87,11 +81,6 @@ const AuditReportPage: React.FC = () => {
     setActionFilter('');
     setEntityTypeFilter('');
     setSearchParams(key === 'overview' ? {} : { tab: key });
-  };
-
-  const handleModuleSelect = (v: string) => {
-    if (v === 'all') { changeTab('overview'); return; }
-    changeTab(MODULE_TO_TAB[v as AuditReportModule]);
   };
 
   const buildQuery = useCallback((): AuditReportQuery => {
@@ -221,7 +210,7 @@ const AuditReportPage: React.FC = () => {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
         <StatCard
           title="Total Activities"
           value={stats?.total ?? 0}
@@ -267,15 +256,6 @@ const AuditReportPage: React.FC = () => {
             className="pl-9"
           />
         </div>
-        <Select value={activeModule || 'all'} onValueChange={handleModuleSelect}>
-          <SelectTrigger className="w-[150px]"><SelectValue placeholder="All Modules" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Modules</SelectItem>
-            <SelectItem value="Asset">Asset</SelectItem>
-            <SelectItem value="License">License</SelectItem>
-            <SelectItem value="Inventory">Inventory</SelectItem>
-          </SelectContent>
-        </Select>
         <Select value={actionFilter || 'all'} onValueChange={(v) => { setActionFilter(v === 'all' ? '' : v); setPage(1); }}>
           <SelectTrigger className="w-[150px]"><SelectValue placeholder="All Actions" /></SelectTrigger>
           <SelectContent>
@@ -376,7 +356,7 @@ const AuditReportPage: React.FC = () => {
                       <td className="px-4 py-3 max-w-[180px] truncate" title={e.reason}>{e.reason || '—'}</td>
                       <td className="px-4 py-3 max-w-[200px] truncate" title={e.details}>{e.details || '—'}</td>
                       <td className="px-4 py-3 text-right">
-                        <Button variant="outline" size="icon-sm" onClick={() => setViewEntry(e)}>
+                        <Button variant="ghost" size="icon-sm" onClick={() => setViewEntry(e)} title="View Details">
                           <Eye className="h-4 w-4" />
                         </Button>
                       </td>

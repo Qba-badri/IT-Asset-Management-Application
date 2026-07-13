@@ -151,9 +151,9 @@ export class DashboardController {
 
   // ── Stock movement bar chart ──
   @Get('stock-movement')
-  async getStockMovement(@Query() filters: any, @Req() req: any) {
+  async getStockMovement(@Query() filters: any) {
     try {
-      return await this.analyticsService.getStockMovement(filters, req.user);
+      return await this.analyticsService.getStockMovement(filters);
     } catch (error) {
       this.logger.error(`Failed to get stock movement: ${error.message}`, error.stack);
       throw new InternalServerErrorException(error.message);

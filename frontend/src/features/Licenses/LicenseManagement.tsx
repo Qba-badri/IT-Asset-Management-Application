@@ -149,7 +149,7 @@ const LicenseManagement: React.FC = () => {
 
     const handleDelete = (id: number) => {
         setConfirmState({
-            show: true, title: 'Delete License', message: 'Are you sure you want to delete this license? This action cannot be undone.', type: 'danger',
+            show: true, title: 'Delete License', message: 'Are you sure you want to delete this license? Licenses with assignment history cannot be deleted and should be terminated or left to expire instead.', type: 'danger',
             onConfirm: async () => {
                 try {
                     await licenseService.deleteLicense(id);
@@ -212,6 +212,14 @@ const LicenseManagement: React.FC = () => {
 
     const submitSeatAdjustment = async () => {
         if (!selectedLicense) return;
+        if (!adjustSeatsData.seats || adjustSeatsData.seats <= 0) {
+            showToast('Total seats must be greater than zero', 'error');
+            return;
+        }
+        if (!adjustSeatsData.reason.trim()) {
+            showToast('Please provide a reason for this adjustment', 'error');
+            return;
+        }
         try {
             setSubmitting(true);
             await licenseService.adjustSeats(selectedLicense.id, adjustSeatsData);
@@ -491,7 +499,7 @@ const LicenseManagement: React.FC = () => {
                 </div>
             </PageHeader>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
                 <StatCard title="Total Licenses" value={stats?.total || 0} subtitle="Unique Software" icon={KeyRound} iconColor="bg-blue-100 text-blue-600" />
                 <StatCard title="Seats Utilization" value={stats?.usedSeats || 0} subtitle={`of ${stats?.totalSeats || 0} Total Seats`} icon={Users} iconColor="bg-purple-100 text-purple-600" />
                 <StatCard title="Expiring Soon" value={licenses.filter(l => isExpiringSoon(l.expiryDate)).length} subtitle="Next 30 Days" icon={CalendarClock} iconColor="bg-amber-100 text-amber-600" />
@@ -623,6 +631,7 @@ const LicenseManagement: React.FC = () => {
                                                     <ActionDropdown
                                                         actions={[
                                                             { label: 'Assign', icon: <UserPlus className="h-4 w-4" />, onClick: () => openAssignModal(license), variant: 'default' as const, disabled: license.usedSeats >= license.totalSeats },
+                                                            { label: 'Adjust Seats', icon: <Users className="h-4 w-4" />, onClick: () => openAdjustSeatsModal(license), variant: 'default' as const },
                                                             { label: 'Renew', icon: <RefreshCw className="h-4 w-4" />, onClick: () => openRenewModal(license), variant: 'default' as const },
                                                             { label: 'Edit', icon: <Edit className="h-4 w-4" />, onClick: () => handleEdit(license), variant: 'default' as const },
                                                             { label: 'Delete', icon: <Trash2 className="h-4 w-4" />, onClick: () => handleDelete(license.id), variant: 'danger' as const, disabled: ((license.assignments && license.assignments.length > 0) || (license.usedSeats && license.usedSeats > 0)) },
@@ -709,7 +718,7 @@ const LicenseManagement: React.FC = () => {
                     {selectedLicense && (
                         <div className="space-y-4">
                             <div className="bg-muted/50 p-3 rounded-md text-sm">
-                                <p className="font-semibold text-primary">{selectedLicense.softwareName}</p>
+                                <p className="font-semibold text-primary">{selectedLicense.licensePlan?.name || selectedLicense.planName || selectedLicense.softwareName}</p>
                                 <div className="flex justify-between mt-1 text-xs">
                                     <span>Current Total: <b>{selectedLicense.totalSeats}</b></span>
                                     <span>Currently Used: <b>{selectedLicense.usedSeats}</b></span>
@@ -719,7 +728,7 @@ const LicenseManagement: React.FC = () => {
                                 <Label>New Total Seat Count</Label>
                                 <Input
                                     type="number"
-                                    min="0"
+                                    min="1"
                                     value={adjustSeatsData.seats}
                                     onChange={e => setAdjustSeatsData({ ...adjustSeatsData, seats: parseInt(e.target.value) || 0 })}
                                 />
@@ -741,11 +750,12 @@ const LicenseManagement: React.FC = () => {
                                 </span>
                             </div>
                             <div className="space-y-2">
-                                <Label>Adjustment Reason</Label>
+                                <Label>Adjustment Reason <span className="text-destructive">*</span></Label>
                                 <Input
                                     value={adjustSeatsData.reason}
                                     onChange={e => setAdjustSeatsData({ ...adjustSeatsData, reason: e.target.value })}
                                     placeholder="e.g. Scaling team, Contract update..."
+                                    required
                                 />
                             </div>
                         </div>
@@ -754,7 +764,7 @@ const LicenseManagement: React.FC = () => {
                         <Button variant="outline" onClick={() => setShowAdjustSeatsModal(false)}>Cancel</Button>
                         <Button
                             onClick={submitSeatAdjustment}
-                            disabled={submitting || (adjustSeatsData.usedSeats > adjustSeatsData.seats)}
+                            disabled={submitting || (adjustSeatsData.usedSeats > adjustSeatsData.seats) || !adjustSeatsData.reason.trim() || !adjustSeatsData.seats || adjustSeatsData.seats <= 0}
                         >
                             {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                             Update Seats

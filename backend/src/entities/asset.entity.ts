@@ -44,6 +44,8 @@ export enum AssetCondition {
     GOOD = 'good',
     FAIR = 'fair',
     POOR = 'poor',
+    DAMAGED = 'damaged',
+    LOST = 'lost',
 }
 
 export enum AcquisitionType {

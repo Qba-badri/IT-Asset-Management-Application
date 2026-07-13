@@ -21,6 +21,7 @@ import { AssignmentsModule } from './modules/assignments/assignments.module';
 import { AuditEventsModule } from './modules/audit-events/audit-events.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { AuditReportModule } from './modules/audit-report/audit-report.module';
+import { DashboardWidgetsModule } from './modules/dashboard-widgets/dashboard-widgets.module';
 import { LocationsModule } from './modules/locations/locations.module';
 import { DepartmentsModule } from './modules/departments/departments.module';
 import { MasterModule } from './modules/master/master.module';
@@ -143,6 +144,7 @@ import { SystemSetting } from './entities/system-setting.entity';
     AuditEventsModule,
     ReportsModule,
     AuditReportModule,
+    DashboardWidgetsModule,
     LocationsModule,
     DepartmentsModule,
     MasterModule,

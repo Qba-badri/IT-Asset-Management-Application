@@ -4,11 +4,12 @@ import { Repository, DataSource, IsNull } from 'typeorm';
 import { InventoryCategory } from '../../entities/inventory-category.entity';
 import { InventoryItem } from '../../entities/inventory-item.entity';
 import { InventoryPurchase } from '../../entities/inventory-purchase.entity';
-import { InventoryAssignment, InventoryAssignmentStatus } from '../../entities/inventory-assignment.entity';
+import { InventoryAssignment, InventoryAssignmentStatus, InventoryAssignmentTargetType } from '../../entities/inventory-assignment.entity';
 import { InventoryReturn } from '../../entities/inventory-return.entity';
 import { InventoryTransaction, InventoryTransactionType } from '../../entities/inventory-transaction.entity';
 import { User } from '../../entities/user.entity';
-import { CreateInventoryCategoryDto, CreateInventoryItemDto, CreateInventoryPurchaseDto, CreateInventoryAssignmentDto, CreateInventoryReturnDto, AdjustStockDto } from './dto/inventory-mgmt.dto';
+import { AuditEvent, AuditAction } from '../../entities/audit-event.entity';
+import { CreateInventoryCategoryDto, CreateInventoryItemDto, CreateInventoryPurchaseDto, CreateInventoryAssignmentDto, CreateInventoryReturnDto, AdjustStockDto, DeleteAssignmentDto } from './dto/inventory-mgmt.dto';
 
 @Injectable()
 export class InventoryManagementService {
@@ -25,6 +26,8 @@ export class InventoryManagementService {
         private returnRepo: Repository<InventoryReturn>,
         @InjectRepository(InventoryTransaction)
         private transactionRepo: Repository<InventoryTransaction>,
+        @InjectRepository(AuditEvent)
+        private auditEventRepo: Repository<AuditEvent>,
         private dataSource: DataSource,
     ) { }
 
@@ -58,18 +61,20 @@ export class InventoryManagementService {
     async deleteCategory(id: number) {
         const category = await this.findOneCategory(id);
 
-        // Check if category has any items
+        // Check if category has any items — including soft-deleted ones,
+        // which still reference the category in audit history
         const itemCount = await this.itemRepo.count({
-            where: { categoryId: id }
+            where: { categoryId: id },
+            withDeleted: true,
         });
 
         if (itemCount > 0) {
             throw new BadRequestException(
-                `Cannot delete category with ${itemCount} item${itemCount > 1 ? 's' : ''}. Please reassign or delete the items first.`
+                `Cannot delete category with ${itemCount} item${itemCount > 1 ? 's' : ''} (including previously deleted items kept for audit history). Please reassign the items first.`
             );
         }
 
-        await this.categoryRepo.remove(category);
+        await this.categoryRepo.softRemove(category);
         return { message: 'Category deleted successfully' };
     }
 
@@ -126,6 +131,66 @@ export class InventoryManagementService {
         return this.itemRepo.save(item);
     }
 
+    // --- Manual Stock Adjustment ---
+    // Corrects stock counts directly (e.g. stock-take discrepancies, damage/loss write-offs)
+    // outside the normal purchase/assignment/return flow. Only IN (increase) or OUT (decrease)
+    // adjustments are accepted; every adjustment is logged as an immutable InventoryTransaction
+    // (type ADJUSTMENT) and an AuditEvent for traceability.
+    async adjustStock(dto: AdjustStockDto, userId: number) {
+        if (dto.type !== InventoryTransactionType.IN && dto.type !== InventoryTransactionType.OUT) {
+            throw new BadRequestException('Adjustment type must be IN (increase) or OUT (decrease)');
+        }
+        if (dto.quantity <= 0) {
+            throw new BadRequestException('Adjustment quantity must be greater than zero');
+        }
+
+        return this.dataSource.transaction(async (manager) => {
+            const item = await manager.findOne(InventoryItem, { where: { id: dto.itemId } });
+            if (!item) throw new NotFoundException('Item not found');
+
+            const previousStock = item.availableStock;
+
+            if (dto.type === InventoryTransactionType.OUT) {
+                if (item.availableStock < dto.quantity) {
+                    throw new BadRequestException(`Insufficient stock. Available: ${item.availableStock}`);
+                }
+                item.totalStock -= dto.quantity;
+                item.availableStock -= dto.quantity;
+            } else {
+                item.totalStock += dto.quantity;
+                item.availableStock += dto.quantity;
+            }
+            await manager.save(InventoryItem, item);
+
+            const transaction = manager.create(InventoryTransaction, {
+                itemId: item.id,
+                type: InventoryTransactionType.ADJUSTMENT,
+                quantity: dto.quantity,
+                referenceType: 'manual_adjustment',
+                performedById: userId,
+                notes: dto.notes,
+            });
+            const savedTransaction = await manager.save(InventoryTransaction, transaction);
+
+            const auditEvent = manager.create(AuditEvent, {
+                action: AuditAction.ADJUST,
+                entityType: 'inventory_item',
+                entityId: item.id,
+                actorId: userId,
+                metadata: {
+                    direction: dto.type,
+                    quantity: dto.quantity,
+                    previousStock,
+                    newStock: item.availableStock,
+                    notes: dto.notes,
+                },
+            });
+            await manager.save(AuditEvent, auditEvent);
+
+            return savedTransaction;
+        });
+    }
+
     // --- Purchase Management ---
     async createPurchase(dto: CreateInventoryPurchaseDto, userId: number) {
         return this.dataSource.transaction(async (manager) => {
@@ -173,8 +238,16 @@ export class InventoryManagementService {
             const item = await manager.findOne(InventoryItem, { where: { id: dto.itemId } });
             if (!item) throw new NotFoundException('Item not found');
 
-            const assignee = await manager.findOne(User, { where: { id: dto.userId } });
-            const assigneeLabel = assignee ? `${assignee.firstName} ${assignee.lastName}` : `User #${dto.userId}`;
+            const targetType = dto.targetType || InventoryAssignmentTargetType.PERSON;
+            let assigneeLabel: string;
+            if (targetType === InventoryAssignmentTargetType.LOCATION) {
+                if (!dto.location) throw new BadRequestException('Location is required for a LOCATION assignment');
+                assigneeLabel = dto.location;
+            } else {
+                if (!dto.userId) throw new BadRequestException('User is required for a PERSON assignment');
+                const assignee = await manager.findOne(User, { where: { id: dto.userId } });
+                assigneeLabel = assignee ? `${assignee.firstName} ${assignee.lastName}` : `User #${dto.userId}`;
+            }
 
             if (item.availableStock < dto.quantity) {
                 throw new BadRequestException(`Insufficient stock. Available: ${item.availableStock}`);
@@ -183,6 +256,9 @@ export class InventoryManagementService {
             // 1. Create Assignment
             const assignment = manager.create(InventoryAssignment, {
                 ...dto,
+                targetType,
+                userId: targetType === InventoryAssignmentTargetType.PERSON ? dto.userId : undefined,
+                location: targetType === InventoryAssignmentTargetType.LOCATION ? dto.location : undefined,
                 status: InventoryAssignmentStatus.ASSIGNED,
             });
             const savedAssignment = await manager.save(InventoryAssignment, assignment);
@@ -199,7 +275,9 @@ export class InventoryManagementService {
                 referenceId: savedAssignment.id,
                 referenceType: 'assignment',
                 performedById: performerId,
-                notes: `Assigned to ${assigneeLabel}`,
+                notes: targetType === InventoryAssignmentTargetType.LOCATION
+                    ? `Deployed to location: ${assigneeLabel}`
+                    : `Assigned to ${assigneeLabel}`,
             });
             await manager.save(InventoryTransaction, transaction);
 
@@ -264,6 +342,67 @@ export class InventoryManagementService {
             condition: dto.condition || '',
             remarks: dto.remarks || ''
         }, approvedById);
+    }
+
+    // --- Correction: mistaken assignment on a non-refundable item ---
+    // Non-refundable items have no physical "return" flow (issued items aren't taken back), so a
+    // wrong assignment (e.g. wrong user, wrong quantity) previously had no way to be corrected.
+    // This restores the stock and voids the assignment record (soft-deleted, not hard-deleted, so
+    // the correction itself stays auditable), logged as an InventoryTransaction + AuditEvent.
+    async deleteMistakenAssignment(assignmentId: number, dto: DeleteAssignmentDto, performedById: number) {
+        return this.dataSource.transaction(async (manager) => {
+            const assignment = await manager.findOne(InventoryAssignment, {
+                where: { id: assignmentId },
+                relations: ['item'],
+            });
+
+            if (!assignment) throw new NotFoundException('Assignment not found');
+            if (assignment.status !== InventoryAssignmentStatus.ASSIGNED) {
+                throw new BadRequestException('Only active assignments can be corrected');
+            }
+
+            const item = assignment.item;
+            if (item.isRefundable) {
+                throw new BadRequestException('Refundable items must be corrected via the Return flow, not deletion');
+            }
+
+            // 1. Restore stock
+            item.availableStock += assignment.quantity;
+            await manager.save(InventoryItem, item);
+
+            // 2. Void the assignment (soft delete keeps the record for audit, status marks it closed)
+            assignment.status = InventoryAssignmentStatus.CLOSED;
+            await manager.save(InventoryAssignment, assignment);
+            await manager.softDelete(InventoryAssignment, assignment.id);
+
+            // 3. Log Transaction
+            const transaction = manager.create(InventoryTransaction, {
+                itemId: item.id,
+                type: InventoryTransactionType.ADJUSTMENT,
+                quantity: assignment.quantity,
+                referenceId: assignment.id,
+                referenceType: 'assignment_correction',
+                performedById,
+                notes: `Removed mistaken assignment #${assignment.id}. Reason: ${dto.reason}`,
+            });
+            await manager.save(InventoryTransaction, transaction);
+
+            // 4. Audit trail
+            const auditEvent = manager.create(AuditEvent, {
+                action: AuditAction.DELETE,
+                entityType: 'inventory_assignment',
+                entityId: assignment.id,
+                actorId: performedById,
+                metadata: {
+                    itemId: item.id,
+                    quantity: assignment.quantity,
+                    reason: dto.reason,
+                },
+            });
+            await manager.save(AuditEvent, auditEvent);
+
+            return { message: 'Assignment corrected and stock restored successfully' };
+        });
     }
 
     // --- History & Reports ---
@@ -336,8 +475,6 @@ export class InventoryManagementService {
             throw new NotFoundException('Inventory item not found');
         }
 
-        // Only check for active assignments if the item is refundable (returnable)
-        // Non-refundable items can be deleted even if they have assignments
         if (item.isRefundable) {
             const activeAssignments = await this.assignmentRepo.count({
                 where: {
@@ -351,6 +488,19 @@ export class InventoryManagementService {
                     `Cannot delete refundable item with active assignments. Please return all assigned items first. (${activeAssignments} active assignment${activeAssignments > 1 ? 's' : ''})`
                 );
             }
+        }
+
+        // Items that were ever assigned appear in audit reports — they must be
+        // kept, not deleted, to keep audit trails intact. Includes soft-deleted
+        // (corrected) assignments.
+        const assignmentHistoryCount = await this.assignmentRepo.count({
+            where: { itemId: id },
+            withDeleted: true,
+        });
+        if (assignmentHistoryCount > 0) {
+            throw new BadRequestException(
+                'This item has assignment history and appears in audit reports. It cannot be deleted.'
+            );
         }
 
         // Soft delete the item

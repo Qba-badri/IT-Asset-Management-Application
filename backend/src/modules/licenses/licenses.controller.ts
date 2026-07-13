@@ -47,8 +47,8 @@ export class LicensesController {
 
   @Post()
   @Permissions('licenses.create')
-  async create(@Body() data: CreateLicenseDto): Promise<License> {
-    return this.licensesService.create(data);
+  async create(@Body() data: CreateLicenseDto, @Req() req: any): Promise<License> {
+    return this.licensesService.create(data, req.user?.id);
   }
 
   @Put(':id')
@@ -71,14 +71,15 @@ export class LicensesController {
   async assign(
     @Param('id', ParseIntPipe) id: number,
     @Body() data: AssignLicenseDto,
+    @Req() req: any,
   ) {
-    return this.licensesService.assignLicense(id, data.userId, data.notes);
+    return this.licensesService.assignLicense(id, data.userId, data.notes, req.user?.id);
   }
 
   @Delete('assignments/:id')
   @Permissions('licenses.manage')
-  async unassign(@Param('id', ParseIntPipe) id: number, @Query('reason') reason?: string) {
-    return this.licensesService.unassignLicense(id, reason);
+  async unassign(@Param('id', ParseIntPipe) id: number, @Req() req: any, @Query('reason') reason?: string) {
+    return this.licensesService.unassignLicense(id, reason, req.user?.id);
   }
 
   @Delete(':id')

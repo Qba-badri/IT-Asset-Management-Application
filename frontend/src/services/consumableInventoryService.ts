@@ -43,8 +43,10 @@ export interface InventoryPurchase {
 
 export interface InventoryAssignment {
     id: number;
-    userId: number;
+    targetType: 'PERSON' | 'LOCATION';
+    userId?: number;
     user?: { id: number; firstName: string; lastName: string; email: string };
+    location?: string;
     department?: string;
     itemId: number;
     item?: InventoryItem;
@@ -120,6 +122,10 @@ export const inventoryService = {
         const response = await apiClient.delete(`/api/inventory-management/items/${id}`);
         return response.data;
     },
+    adjustStock: async (data: { itemId: number; quantity: number; type: 'IN' | 'OUT'; notes: string }) => {
+        const response = await apiClient.post<InventoryTransaction>("/api/inventory-management/items/adjust-stock", data);
+        return response.data;
+    },
 
     // Purchases
     getPurchases: async () => {
@@ -145,6 +151,11 @@ export const inventoryService = {
 
     returnItem: async (assignmentId: number, data: { condition?: string; remarks?: string }) => {
         const response = await apiClient.post(`/api/inventory-management/assignments/${assignmentId}/return`, data);
+        return response.data;
+    },
+
+    deleteMistakenAssignment: async (assignmentId: number, reason: string) => {
+        const response = await apiClient.post(`/api/inventory-management/assignments/${assignmentId}/delete-mistake`, { reason });
         return response.data;
     },
 

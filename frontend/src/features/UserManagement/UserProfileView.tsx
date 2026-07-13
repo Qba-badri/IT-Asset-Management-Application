@@ -274,7 +274,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ userId, onClose }) =>
                                     {(inventory?.licenseAssignments || []).length > 0 ? (
                                         inventory?.licenseAssignments?.map((la: any) => (
                                             <TableRow key={la.id} className="hover:bg-muted/20 transition-colors">
-                                                <TableCell className="font-semibold">{la.license?.softwareName}</TableCell>
+                                                <TableCell className="font-semibold">{la.license?.planName || la.license?.softwareName}</TableCell>
                                                 <TableCell className="text-sm">{la.license?.vendor}</TableCell>
                                                 <TableCell><Badge variant="outline" className="capitalize">{la.license?.type}</Badge></TableCell>
                                                 <TableCell className="text-sm">

@@ -1,6 +1,6 @@
 import { IsString, IsOptional, IsNumber, IsDateString, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
-import { AssetStatus } from '../../../entities/asset.entity';
+import { AssetStatus, AssetCondition } from '../../../entities/asset.entity';
 
 export class CreateAssetDto {
     @IsString()
@@ -170,6 +170,9 @@ export class DeployAssetDto {
 export class UndeployAssetDto {
     @IsString()
     reason: string;
+
+    @IsEnum(AssetCondition)
+    condition: AssetCondition;
 
     @IsNumber()
     @IsOptional()

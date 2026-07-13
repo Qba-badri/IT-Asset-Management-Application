@@ -27,14 +27,14 @@ export function StatCard({
     if (loading) {
         return (
             <Card>
-                <CardContent className="p-6">
+                <CardContent className="p-4">
                     <div className="flex items-center justify-between">
-                        <div className="space-y-3">
-                            <Skeleton className="h-4 w-24" />
-                            <Skeleton className="h-8 w-16" />
-                            <Skeleton className="h-3 w-32" />
+                        <div className="space-y-2">
+                            <Skeleton className="h-3 w-20" />
+                            <Skeleton className="h-6 w-14" />
+                            <Skeleton className="h-3 w-28" />
                         </div>
-                        <Skeleton className="h-12 w-12 rounded-xl" />
+                        <Skeleton className="h-10 w-10 rounded-xl" />
                     </div>
                 </CardContent>
             </Card>
@@ -43,11 +43,11 @@ export function StatCard({
 
     return (
         <Card className="overflow-hidden">
-            <CardContent className="p-6">
+            <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                     <div className="space-y-1">
-                        <p className="text-sm font-medium text-muted-foreground">{title}</p>
-                        <p className="text-3xl font-bold tracking-tight">{value}</p>
+                        <p className="text-xs font-medium text-muted-foreground">{title}</p>
+                        <p className="text-2xl font-bold tracking-tight">{value}</p>
                         <div className="flex items-center gap-1.5 text-xs">
                             <span className="text-muted-foreground">{subtitle}</span>
                             {subtitleValue !== undefined && (
@@ -61,8 +61,8 @@ export function StatCard({
                             )}
                         </div>
                     </div>
-                    <div className={`flex h-12 w-12 items-center justify-center rounded-xl shrink-0 ${iconColor}`}>
-                        <Icon className="h-6 w-6" />
+                    <div className={`flex h-10 w-10 items-center justify-center rounded-xl shrink-0 ${iconColor}`}>
+                        <Icon className="h-5 w-5" />
                     </div>
                 </div>
             </CardContent>

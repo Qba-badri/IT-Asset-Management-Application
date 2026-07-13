@@ -18,18 +18,34 @@ export enum InventoryAssignmentStatus {
     CLOSED = 'closed',
 }
 
+export enum InventoryAssignmentTargetType {
+    PERSON = 'PERSON',
+    LOCATION = 'LOCATION',
+}
+
 @Entity('inventory_assignments')
 export class InventoryAssignment {
     @PrimaryGeneratedColumn()
     id: number;
 
-    @Column({ name: 'user_id', type: 'int' })
+    @Column({
+        name: 'target_type',
+        type: 'enum',
+        enum: InventoryAssignmentTargetType,
+        default: InventoryAssignmentTargetType.PERSON,
+    })
+    targetType: InventoryAssignmentTargetType;
+
+    @Column({ name: 'user_id', type: 'int', nullable: true })
     @Index()
     userId: number;
 
-    @ManyToOne(() => User)
+    @ManyToOne(() => User, { nullable: true })
     @JoinColumn({ name: 'user_id' })
     user: User;
+
+    @Column({ type: 'varchar', length: 255, nullable: true })
+    location: string;
 
     @Column({ type: 'varchar', length: 100, nullable: true })
     department: string;

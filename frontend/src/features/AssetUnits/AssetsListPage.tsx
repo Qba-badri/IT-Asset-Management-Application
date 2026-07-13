@@ -272,15 +272,17 @@ const AssetsListPage: React.FC = () => {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        title="View Details"
                         onClick={(e) => {
                           e.stopPropagation();
                           navigate(`/dashboard/asset-units/${asset.id}`);
                         }}
-                        className="p-1 text-muted-foreground hover:text-primary rounded"
                       >
-                        <Eye className="w-4 h-4" />
-                      </button>
+                        <Eye className="h-4 w-4" />
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))

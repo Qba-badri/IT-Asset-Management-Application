@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Search, Package, MapPin, TrendingUp, TrendingDown
+  Search, Package, MapPin, TrendingUp, TrendingDown, Sliders, Loader2
 } from 'lucide-react';
 import { stockService, StockByLocation, StockLedgerEntry, StockQuery, LedgerQuery } from '../../services/stockService';
 import { locationsService, Location } from '../../services/lookupService';
@@ -8,8 +8,11 @@ import { useToast } from '../../context/ToastContext';
 import { PageHeader } from '../../components/shared/PageHeader';
 import { Card, CardContent } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
+import { Label } from '../../components/ui/label';
+import { Button } from '../../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { Pagination } from '../../components/shared/Pagination';
 
 type Tab = 'levels' | 'ledger';
@@ -31,6 +34,13 @@ const StockPage: React.FC = () => {
 
   const [locations, setLocations] = useState<Location[]>([]);
   const [locationFilter, setLocationFilter] = useState<number | ''>('');
+
+  // Adjust Stock modal
+  const [showAdjustModal, setShowAdjustModal] = useState(false);
+  const [adjustTarget, setAdjustTarget] = useState<StockByLocation | null>(null);
+  const [adjustQuantity, setAdjustQuantity] = useState(0);
+  const [adjustNotes, setAdjustNotes] = useState('');
+  const [adjusting, setAdjusting] = useState(false);
 
   useEffect(() => { locationsService.getAll().then(setLocations).catch(() => { }); }, []);
 
@@ -60,6 +70,42 @@ const StockPage: React.FC = () => {
 
   const stockPages = Math.ceil(stockTotal / 25);
   const ledgerPages = Math.ceil(ledgerTotal / 50);
+
+  const openAdjustModal = (stock: StockByLocation) => {
+    setAdjustTarget(stock);
+    setAdjustQuantity(stock.quantity);
+    setAdjustNotes('');
+    setShowAdjustModal(true);
+  };
+
+  const handleAdjust = async () => {
+    if (!adjustTarget) return;
+    if (!adjustQuantity || adjustQuantity <= 0) {
+      showToast('Quantity must be greater than zero', 'error');
+      return;
+    }
+    if (!adjustNotes.trim()) {
+      showToast('Please provide a reason for this adjustment', 'error');
+      return;
+    }
+    try {
+      setAdjusting(true);
+      await stockService.adjust({
+        catalogItemId: adjustTarget.catalogItemId,
+        locationId: adjustTarget.locationId,
+        newQuantity: adjustQuantity,
+        notes: adjustNotes,
+      });
+      showToast('Stock adjusted successfully', 'success');
+      setShowAdjustModal(false);
+      fetchStocks();
+    } catch (error: any) {
+      const message = error.response?.data?.message || error.message || 'Failed to adjust stock';
+      showToast(Array.isArray(message) ? message.join(', ') : message, 'error');
+    } finally {
+      setAdjusting(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -123,11 +169,12 @@ const StockPage: React.FC = () => {
                   <TableHead>Location</TableHead>
                   <TableHead className="text-right">Quantity</TableHead>
                   <TableHead className="text-right">Reorder Point</TableHead>
+                  <TableHead className="w-[50px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {stocks.length === 0 ? (
-                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-12">No stock records</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-12">No stock records</TableCell></TableRow>
                 ) : stocks.map((s) => (
                   <TableRow key={s.id}>
                     <TableCell className="font-medium">{s.catalogItem?.name || '—'}</TableCell>
@@ -140,6 +187,11 @@ const StockPage: React.FC = () => {
                       )}
                     </TableCell>
                     <TableCell className="text-right text-muted-foreground">{s.catalogItem?.reorderPoint || 0}</TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="icon-sm" onClick={() => openAdjustModal(s)} title="Adjust Stock">
+                        <Sliders className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -204,6 +256,46 @@ const StockPage: React.FC = () => {
           </CardContent>
         </Card>
       )}
+
+      {/* Adjust Stock Modal */}
+      <Dialog open={showAdjustModal} onOpenChange={setShowAdjustModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Adjust Stock — {adjustTarget?.catalogItem?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="text-sm text-muted-foreground">
+              <MapPin className="w-3 h-3 inline mr-1" />{adjustTarget?.location?.name} · Current quantity: <span className="font-bold text-foreground">{adjustTarget?.quantity}</span>
+            </div>
+            <div className="space-y-2">
+              <Label>New Quantity</Label>
+              <Input
+                type="number"
+                min={1}
+                value={adjustQuantity}
+                onChange={(e) => setAdjustQuantity(parseInt(e.target.value) || 0)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Reason <span className="text-destructive">*</span></Label>
+              <textarea
+                className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={adjustNotes}
+                onChange={(e) => setAdjustNotes(e.target.value)}
+                placeholder="e.g. stock-take correction, damaged goods write-off..."
+                required
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAdjustModal(false)}>Cancel</Button>
+            <Button onClick={handleAdjust} disabled={adjusting || !adjustNotes.trim() || !adjustQuantity || adjustQuantity <= 0}>
+              {adjusting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Apply Adjustment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

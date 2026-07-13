@@ -24,6 +24,8 @@ import { InventoryPurchase } from '../../entities/inventory-purchase.entity';   
 import { InventoryTransaction } from '../../entities/inventory-transaction.entity'; // KPI 8
 import { Assignment } from '../../entities/assignment.entity';
 import { ReturnTransaction } from '../../entities/return-transaction.entity';       // KPI 11, 12
+import { InventoryAssignment } from '../../entities/inventory-assignment.entity';   // KPI 9, 10, 11
+import { InventoryReturn } from '../../entities/inventory-return.entity';           // KPI 11, 12
 import { AssetHistory } from '../../entities/asset-history.entity';
 import { StockLedger } from '../../entities/stock-ledger.entity';
 import { AuditLog } from '../../entities/audit-log.entity';
@@ -45,6 +47,8 @@ import { SettingsModule } from '../settings/settings.module';
       InventoryTransaction,   // KPI 8 — inventory turnover
       Assignment,
       ReturnTransaction,      // KPI 11, 12 — return rate & damage
+      InventoryAssignment,    // KPI 9, 10, 11 — bulk assignment KPIs
+      InventoryReturn,        // KPI 11, 12 — bulk returns & condition
       AssetHistory,
       StockLedger,
       AuditLog,

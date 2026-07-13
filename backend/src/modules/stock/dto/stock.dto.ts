@@ -1,4 +1,4 @@
-import { IsNumber, IsOptional, IsString, IsEnum, Min } from 'class-validator';
+import { IsNumber, IsOptional, IsString, IsNotEmpty, IsEnum, Min } from 'class-validator';
 import { LedgerReason } from '../../../entities/stock-ledger.entity';
 
 export class AdjustStockDto {
@@ -9,15 +9,16 @@ export class AdjustStockDto {
   locationId: number;
 
   @IsNumber()
+  @Min(1, { message: 'Quantity must be greater than zero' })
   newQuantity: number;
 
   @IsOptional()
   @IsString()
   reason?: string;
 
-  @IsOptional()
   @IsString()
-  notes?: string;
+  @IsNotEmpty({ message: 'A reason is required for stock adjustments' })
+  notes: string;
 }
 
 export class InitialStockDto {

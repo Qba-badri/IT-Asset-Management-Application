@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber, IsBoolean, IsDate } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsBoolean, IsDate, IsNotEmpty, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateLicenseDto {
@@ -140,6 +140,7 @@ export class RenewLicenseDto {
 
 export class AdjustSeatsDto {
     @IsNumber()
+    @Min(1, { message: 'Total seats must be greater than zero' })
     seats: number;
 
     @IsNumber()
@@ -147,7 +148,7 @@ export class AdjustSeatsDto {
     usedSeats?: number;
 
     @IsString()
-    @IsOptional()
-    reason?: string;
+    @IsNotEmpty({ message: 'A reason is required for seat adjustments' })
+    reason: string;
 }
 

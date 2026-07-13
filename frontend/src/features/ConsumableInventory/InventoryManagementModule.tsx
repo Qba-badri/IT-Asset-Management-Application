@@ -2,9 +2,10 @@ import React, { useEffect, useState } from 'react';
 import {
     Plus, Edit, Trash2, Search, Eye,
     Package, ShoppingCart, UserPlus, AlertTriangle, ArrowUpDown,
-    Check, Loader2, Download, RefreshCw, Filter, X, Settings2, History
+    Check, Loader2, Download, RefreshCw, Filter, X, Settings2, History, MapPin, Sliders
 } from 'lucide-react';
 import { inventoryService, InventoryItem, InventoryCategory, InventoryPurchase, InventoryAssignment } from '../../services/consumableInventoryService';
+import { authService } from '../../services/authService';
 import { userService, User } from '../../services/userService';
 import { masterService, Vendor, Lookup } from '../../services/masterService';
 import { useToast } from '../../context/ToastContext';
@@ -34,6 +35,7 @@ const InventoryManagement: React.FC = () => {
     const [users, setUsers] = useState<User[]>([]);
     const [vendors, setVendors] = useState<Vendor[]>([]);
     const [lookups, setLookups] = useState<Record<string, Lookup[]>>({});
+    const [currentUser, setCurrentUser] = useState<any>(null);
     const [stats, setStats] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
@@ -57,6 +59,8 @@ const InventoryManagement: React.FC = () => {
     const [showAssignmentFormModal, setShowAssignmentFormModal] = useState(false);
     const [showReturnFormModal, setShowReturnFormModal] = useState(false);
     const [showDetailsModal, setShowDetailsModal] = useState(false);
+    const [showAdjustStockModal, setShowAdjustStockModal] = useState(false);
+    const [showDeleteAssignmentModal, setShowDeleteAssignmentModal] = useState(false);
 
     // Selected Items
     const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
@@ -88,7 +92,9 @@ const InventoryManagement: React.FC = () => {
 
     const [newAssignment, setNewAssignment] = useState({
         itemId: 0,
+        targetType: 'PERSON' as 'PERSON' | 'LOCATION',
         userId: 0,
+        location: '',
         quantity: 0,
         department: '',
         expectedReturnDate: ''
@@ -99,6 +105,15 @@ const InventoryManagement: React.FC = () => {
         condition: '',
         remarks: ''
     });
+
+    const [stockAdjustment, setStockAdjustment] = useState({
+        itemId: 0,
+        type: 'IN' as 'IN' | 'OUT',
+        quantity: 0,
+        notes: ''
+    });
+
+    const [deleteAssignmentData, setDeleteAssignmentData] = useState({ assignmentId: 0, reason: '' });
 
     const loadData = async () => {
         try {
@@ -166,6 +181,7 @@ const InventoryManagement: React.FC = () => {
 
     useEffect(() => {
         loadData();
+        authService.getProfile().then(setCurrentUser).catch(() => { });
     }, []);
 
     const itemsPerPage = 10;
@@ -279,20 +295,33 @@ const InventoryManagement: React.FC = () => {
     };
 
     const handleCreateAssignment = async () => {
-        if (!newAssignment.itemId || !newAssignment.userId || !newAssignment.quantity) {
-            showToast("Please select Item, User and enter Quantity", "error");
+        if (!newAssignment.itemId || !newAssignment.quantity) {
+            showToast("Please select an Item and enter Quantity", "error");
+            return;
+        }
+        if (newAssignment.targetType === 'PERSON' && !newAssignment.userId) {
+            showToast("Please select a User", "error");
+            return;
+        }
+        if (newAssignment.targetType === 'LOCATION' && !newAssignment.location.trim()) {
+            showToast("Please enter a Location", "error");
             return;
         }
 
         try {
             setSubmitting(true);
             await inventoryService.createAssignment({
-                ...newAssignment,
+                itemId: newAssignment.itemId,
+                targetType: newAssignment.targetType,
+                userId: newAssignment.targetType === 'PERSON' ? newAssignment.userId : undefined,
+                location: newAssignment.targetType === 'LOCATION' ? newAssignment.location : undefined,
+                quantity: newAssignment.quantity,
+                department: newAssignment.department,
                 expectedReturnDate: newAssignment.expectedReturnDate || undefined
             });
             showToast('Item assigned successfully', 'success');
             setShowAssignmentFormModal(false);
-            setNewAssignment({ itemId: 0, userId: 0, quantity: 0, department: '', expectedReturnDate: '' });
+            setNewAssignment({ itemId: 0, targetType: 'PERSON', userId: 0, location: '', quantity: 0, department: '', expectedReturnDate: '' });
             loadData();
             if (activeTab === 'assignments') loadAssignments();
         } catch (error: any) {
@@ -333,6 +362,10 @@ const InventoryManagement: React.FC = () => {
             showToast("Please select an assignment to return", "error");
             return;
         }
+        if (!newReturn.condition) {
+            showToast("Please select the item's condition to process the return", "error");
+            return;
+        }
 
         try {
             setSubmitting(true);
@@ -361,11 +394,77 @@ const InventoryManagement: React.FC = () => {
         }
     };
 
+    const handleAdjustStockClick = (item: InventoryItem) => {
+        setStockAdjustment({ itemId: item.id, type: 'IN', quantity: 0, notes: '' });
+        setShowAdjustStockModal(true);
+    };
+
+    const handleAdjustStock = async () => {
+        if (!stockAdjustment.quantity || stockAdjustment.quantity <= 0) {
+            showToast("Please enter a quantity greater than zero", "error");
+            return;
+        }
+        if (!stockAdjustment.notes.trim()) {
+            showToast("Please provide a reason for this adjustment", "error");
+            return;
+        }
+
+        try {
+            setSubmitting(true);
+            await inventoryService.adjustStock(stockAdjustment);
+            showToast('Stock adjusted successfully', 'success');
+            setShowAdjustStockModal(false);
+            loadData();
+
+            if (selectedItem && selectedItem.id === stockAdjustment.itemId) {
+                const updatedItem = await inventoryService.getItem(selectedItem.id);
+                setSelectedItem(updatedItem);
+            }
+        } catch (error: any) {
+            console.error('Failed to adjust stock:', error);
+            const message = error.response?.data?.message || error.message || 'Failed to adjust stock';
+            showToast(Array.isArray(message) ? message.join(', ') : message, 'error');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const handleDeleteAssignmentClick = (assignmentId: number) => {
+        setDeleteAssignmentData({ assignmentId, reason: '' });
+        setShowDeleteAssignmentModal(true);
+    };
+
+    const handleDeleteAssignment = async () => {
+        if (!deleteAssignmentData.reason.trim()) {
+            showToast("Please provide a reason for this correction", "error");
+            return;
+        }
+
+        try {
+            setSubmitting(true);
+            await inventoryService.deleteMistakenAssignment(deleteAssignmentData.assignmentId, deleteAssignmentData.reason);
+            showToast('Assignment corrected and stock restored', 'success');
+            setShowDeleteAssignmentModal(false);
+            loadData();
+
+            if (selectedItem) {
+                const updatedItem = await inventoryService.getItem(selectedItem.id);
+                setSelectedItem(updatedItem);
+            }
+        } catch (error: any) {
+            console.error('Failed to delete assignment:', error);
+            const message = error.response?.data?.message || error.message || 'Failed to correct assignment';
+            showToast(Array.isArray(message) ? message.join(', ') : message, 'error');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
     const handleDeleteClick = (item: InventoryItem) => {
         setConfirmState({
             show: true,
             title: 'Delete Inventory Item',
-            message: `Are you sure you want to delete "${item.name}"? This action cannot be undone.`,
+            message: `Are you sure you want to delete "${item.name}"? Items with assignment history cannot be deleted and are kept for audit reports.`,
             type: 'danger',
             onConfirm: () => handleDeleteConfirm(item.id)
         });
@@ -445,6 +544,7 @@ const InventoryManagement: React.FC = () => {
                 a.user?.firstName?.toLowerCase().includes(s) ||
                 a.user?.lastName?.toLowerCase().includes(s) ||
                 a.user?.email?.toLowerCase().includes(s) ||
+                a.location?.toLowerCase().includes(s) ||
                 a.item?.name?.toLowerCase().includes(s) ||
                 a.department?.toLowerCase().includes(s);
 
@@ -507,7 +607,7 @@ const InventoryManagement: React.FC = () => {
                     )}
                     {activeTab === 'assignments' && (
                         <Button size="sm" className="bg-primary hover:bg-primary/90" onClick={() => {
-                            setNewAssignment({ itemId: 0, userId: 0, quantity: 1, department: '', expectedReturnDate: '' });
+                            setNewAssignment({ itemId: 0, targetType: 'PERSON', userId: 0, location: '', quantity: 1, department: '', expectedReturnDate: '' });
                             setShowAssignmentFormModal(true);
                         }}>
                             <UserPlus className="h-4 w-4 mr-2" /> Issue Item
@@ -517,7 +617,7 @@ const InventoryManagement: React.FC = () => {
             </PageHeader>
 
             {/* Stats Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
                 <StatCard title="Total Items" value={stats?.totalItems || 0} subtitle="Unique Products" icon={Package} iconColor="bg-blue-100 text-blue-600" />
                 <StatCard title="Total Stock" value={stats?.totalStock || 0} subtitle="All Units" icon={ShoppingCart} iconColor="bg-green-100 text-green-600" />
                 <StatCard title="Low Stock Items" value={items.filter(i => i.availableStock <= i.minStockLevel && i.availableStock > 0).length} subtitle="Need Reorder" icon={AlertTriangle} iconColor="bg-amber-100 text-amber-600" />
@@ -678,13 +778,18 @@ const InventoryManagement: React.FC = () => {
                                                     </TableCell>
                                                     <TableCell>{getStockBadge(item)}</TableCell>
                                                     <TableCell>
-                                                        <ActionDropdown actions={[
-                                                            { label: 'View Details', icon: <Eye className="h-4 w-4" />, onClick: () => handleViewDetails(item.id) },
-                                                            { label: 'Edit Item', icon: <Edit className="h-4 w-4" />, onClick: () => handleEditItem(item) },
-                                                            { label: 'Record Purchase', icon: <ShoppingCart className="h-4 w-4" />, onClick: () => { setNewPurchase({ ...newPurchase, itemId: item.id, unitsPerPack: item.unitsPerPack || 1 }); setShowPurchaseFormModal(true); } },
-                                                            { label: 'Assign to User', icon: <UserPlus className="h-4 w-4" />, onClick: () => { setNewAssignment({ ...newAssignment, itemId: item.id }); setShowAssignmentFormModal(true); } },
-                                                            { label: 'Delete Item', icon: <Trash2 className="h-4 w-4" />, onClick: () => handleDeleteClick(item), variant: 'danger' },
-                                                        ]} />
+                                                        <div className="flex items-center justify-end gap-1">
+                                                            <Button variant="ghost" size="icon-sm" onClick={() => handleViewDetails(item.id)} title="View Details">
+                                                                <Eye className="h-4 w-4" />
+                                                            </Button>
+                                                            <ActionDropdown actions={[
+                                                                { label: 'Edit Item', icon: <Edit className="h-4 w-4" />, onClick: () => handleEditItem(item) },
+                                                                { label: 'Record Purchase', icon: <ShoppingCart className="h-4 w-4" />, onClick: () => { setNewPurchase({ ...newPurchase, itemId: item.id, unitsPerPack: item.unitsPerPack || 1 }); setShowPurchaseFormModal(true); } },
+                                                                { label: 'Assign Item', icon: <UserPlus className="h-4 w-4" />, onClick: () => { setNewAssignment({ ...newAssignment, itemId: item.id }); setShowAssignmentFormModal(true); } },
+                                                                { label: 'Adjust Stock', icon: <Sliders className="h-4 w-4" />, onClick: () => handleAdjustStockClick(item) },
+                                                                { label: 'Delete Item', icon: <Trash2 className="h-4 w-4" />, onClick: () => handleDeleteClick(item), variant: 'danger' },
+                                                            ]} />
+                                                        </div>
                                                     </TableCell>
                                                 </TableRow>
                                             ))
@@ -789,7 +894,7 @@ const InventoryManagement: React.FC = () => {
                                     <TableRow>
                                         <TableHead>Date</TableHead>
                                         <TableHead>Item</TableHead>
-                                        <TableHead>User</TableHead>
+                                        <TableHead>Assigned To</TableHead>
                                         <TableHead>Quantity</TableHead>
                                         <TableHead>Status</TableHead>
                                         <TableHead className="w-[100px]">Actions</TableHead>
@@ -807,8 +912,17 @@ const InventoryManagement: React.FC = () => {
                                                 <TableCell className="text-sm">{new Date(a.assignmentDate).toLocaleDateString()}</TableCell>
                                                 <TableCell className="font-medium text-primary">{a.item?.name}</TableCell>
                                                 <TableCell>
-                                                    <div className="text-sm font-medium">{a.user?.firstName} {a.user?.lastName}</div>
-                                                    <div className="text-xs text-muted-foreground">{a.user?.email}</div>
+                                                    {a.targetType === 'LOCATION' ? (
+                                                        <div className="flex items-center gap-1.5">
+                                                            <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
+                                                            <span className="text-sm font-medium">{a.location}</span>
+                                                        </div>
+                                                    ) : (
+                                                        <>
+                                                            <div className="text-sm font-medium">{a.user?.firstName} {a.user?.lastName}</div>
+                                                            <div className="text-xs text-muted-foreground">{a.user?.email}</div>
+                                                        </>
+                                                    )}
                                                 </TableCell>
                                                 <TableCell className="font-semibold">{a.quantity}</TableCell>
                                                 <TableCell>
@@ -819,9 +933,9 @@ const InventoryManagement: React.FC = () => {
                                                 <TableCell>
                                                     <div className="flex items-center gap-1">
                                                         <Button
-                                                            size="icon"
+                                                            size="icon-sm"
                                                             variant="ghost"
-                                                            className="h-8 w-8"
+                                                            title="View Details"
                                                             asChild
                                                         >
                                                             <Link to={`/dashboard/inventory/${a.item?.id}`}>
@@ -1067,7 +1181,7 @@ const InventoryManagement: React.FC = () => {
             {/* Create Assignment Modal */}
             <Dialog open={showAssignmentFormModal} onOpenChange={setShowAssignmentFormModal}>
                 <DialogContent>
-                    <DialogHeader><DialogTitle>Assign Item to User</DialogTitle></DialogHeader>
+                    <DialogHeader><DialogTitle>Assign Item</DialogTitle></DialogHeader>
                     <div className="space-y-4">
                         <div className="space-y-2">
                             <Label>Item *</Label>
@@ -1083,18 +1197,50 @@ const InventoryManagement: React.FC = () => {
                             </select>
                         </div>
                         <div className="space-y-2">
-                            <Label>User *</Label>
-                            <select
-                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                value={newAssignment.userId}
-                                onChange={e => setNewAssignment({ ...newAssignment, userId: parseInt(e.target.value) })}
-                            >
-                                <option value={0}>-- Select User --</option>
-                                {users.map(u => (
-                                    <option key={u.id} value={u.id}>{u.firstName} {u.lastName} ({u.email})</option>
-                                ))}
-                            </select>
+                            <Label>Assign To *</Label>
+                            <div className="flex gap-2">
+                                <Button
+                                    type="button"
+                                    variant={newAssignment.targetType === 'PERSON' ? 'default' : 'outline'}
+                                    size="sm"
+                                    onClick={() => setNewAssignment({ ...newAssignment, targetType: 'PERSON' })}
+                                >
+                                    Person
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant={newAssignment.targetType === 'LOCATION' ? 'default' : 'outline'}
+                                    size="sm"
+                                    onClick={() => setNewAssignment({ ...newAssignment, targetType: 'LOCATION' })}
+                                >
+                                    Location
+                                </Button>
+                            </div>
                         </div>
+                        {newAssignment.targetType === 'PERSON' ? (
+                            <div className="space-y-2">
+                                <Label>User *</Label>
+                                <select
+                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                    value={newAssignment.userId}
+                                    onChange={e => setNewAssignment({ ...newAssignment, userId: parseInt(e.target.value) })}
+                                >
+                                    <option value={0}>-- Select User --</option>
+                                    {users.map(u => (
+                                        <option key={u.id} value={u.id}>{u.firstName} {u.lastName} ({u.email})</option>
+                                    ))}
+                                </select>
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                <Label>Location *</Label>
+                                <Input
+                                    value={newAssignment.location}
+                                    onChange={e => setNewAssignment({ ...newAssignment, location: e.target.value })}
+                                    placeholder="e.g. Conference Room 3B, Reception TV"
+                                />
+                            </div>
+                        )}
                         <div className="space-y-2">
                             <Label>Quantity *</Label>
                             <Input type="number" value={newAssignment.quantity} onChange={e => setNewAssignment({ ...newAssignment, quantity: parseInt(e.target.value) })} />
@@ -1124,7 +1270,7 @@ const InventoryManagement: React.FC = () => {
                     <DialogHeader><DialogTitle>Return Item</DialogTitle></DialogHeader>
                     <div className="space-y-4">
                         <div className="space-y-2">
-                            <Label>Condition</Label>
+                            <Label>Condition <span className="text-red-500">*</span></Label>
                             <select
                                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                                 value={newReturn.condition}
@@ -1149,9 +1295,87 @@ const InventoryManagement: React.FC = () => {
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setShowReturnFormModal(false)}>Cancel</Button>
-                        <Button onClick={handleReturn} disabled={submitting}>
+                        <Button onClick={handleReturn} disabled={submitting || !newReturn.condition}>
                             {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                             Process Return
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Adjust Stock Modal */}
+            <Dialog open={showAdjustStockModal} onOpenChange={setShowAdjustStockModal}>
+                <DialogContent>
+                    <DialogHeader><DialogTitle>Adjust Stock</DialogTitle></DialogHeader>
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <Label>Adjustment Type</Label>
+                            <select
+                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                value={stockAdjustment.type}
+                                onChange={e => setStockAdjustment({ ...stockAdjustment, type: e.target.value as 'IN' | 'OUT' })}
+                            >
+                                <option value="IN">Increase Stock</option>
+                                <option value="OUT">Decrease Stock</option>
+                            </select>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Quantity</Label>
+                            <Input
+                                type="number"
+                                min={1}
+                                value={stockAdjustment.quantity || ''}
+                                onChange={e => setStockAdjustment({ ...stockAdjustment, quantity: parseInt(e.target.value) || 0 })}
+                                placeholder="Enter quantity"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Reason <span className="text-destructive">*</span></Label>
+                            <textarea
+                                className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                value={stockAdjustment.notes}
+                                onChange={e => setStockAdjustment({ ...stockAdjustment, notes: e.target.value })}
+                                placeholder="e.g. stock-take correction, damaged goods write-off..."
+                                required
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowAdjustStockModal(false)}>Cancel</Button>
+                        <Button onClick={handleAdjustStock} disabled={submitting || !stockAdjustment.notes.trim() || !stockAdjustment.quantity || stockAdjustment.quantity <= 0}>
+                            {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                            Apply Adjustment
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Delete Mistaken Assignment Modal (non-refundable items, Admin only) */}
+            <Dialog open={showDeleteAssignmentModal} onOpenChange={setShowDeleteAssignmentModal}>
+                <DialogContent>
+                    <DialogHeader><DialogTitle>Delete Mistaken Assignment</DialogTitle></DialogHeader>
+                    <div className="space-y-4">
+                        <p className="text-sm text-muted-foreground">
+                            This item is non-refundable and cannot be returned normally. Use this only to correct a
+                            wrong entry — the assigned quantity will be restored to available stock and this
+                            assignment record will be voided.
+                        </p>
+                        <div className="space-y-2">
+                            <Label>Reason <span className="text-destructive">*</span></Label>
+                            <textarea
+                                className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                value={deleteAssignmentData.reason}
+                                onChange={e => setDeleteAssignmentData({ ...deleteAssignmentData, reason: e.target.value })}
+                                placeholder="e.g. Assigned to wrong user, wrong quantity entered..."
+                                required
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowDeleteAssignmentModal(false)}>Cancel</Button>
+                        <Button variant="destructive" onClick={handleDeleteAssignment} disabled={submitting || !deleteAssignmentData.reason.trim()}>
+                            {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                            Delete Assignment
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -1286,12 +1510,12 @@ const InventoryManagement: React.FC = () => {
                                                 <Table>
                                                     <TableHeader>
                                                         <TableRow>
-                                                            <TableHead>User Details</TableHead>
+                                                            <TableHead>Assigned To</TableHead>
                                                             <TableHead>Department</TableHead>
                                                             <TableHead className="text-right">Qty</TableHead>
                                                             <TableHead>Assigned Date</TableHead>
                                                             <TableHead>Status</TableHead>
-                                                            {selectedItem.isRefundable && <TableHead className="w-[100px] text-right">Action</TableHead>}
+                                                            {(selectedItem.isRefundable || currentUser?.role?.name === 'Admin') && <TableHead className="w-[100px] text-right">Action</TableHead>}
                                                         </TableRow>
                                                     </TableHeader>
                                                     <TableBody>
@@ -1302,17 +1526,27 @@ const InventoryManagement: React.FC = () => {
                                                                     a.user?.firstName?.toLowerCase().includes(s) ||
                                                                     a.user?.lastName?.toLowerCase().includes(s) ||
                                                                     a.user?.email?.toLowerCase().includes(s) ||
+                                                                    a.location?.toLowerCase().includes(s) ||
                                                                     a.department?.toLowerCase().includes(s);
                                                             })
                                                             .map((assignment: any) => (
                                                                 <TableRow key={assignment.id}>
                                                                     <TableCell>
-                                                                        <div className="font-medium">
-                                                                            {assignment.user?.firstName} {assignment.user?.lastName}
-                                                                        </div>
-                                                                        <div className="text-xs text-muted-foreground">
-                                                                            {assignment.user?.email}
-                                                                        </div>
+                                                                        {assignment.targetType === 'LOCATION' ? (
+                                                                            <div className="flex items-center gap-1.5">
+                                                                                <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
+                                                                                <span className="font-medium">{assignment.location}</span>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <>
+                                                                                <div className="font-medium">
+                                                                                    {assignment.user?.firstName} {assignment.user?.lastName}
+                                                                                </div>
+                                                                                <div className="text-xs text-muted-foreground">
+                                                                                    {assignment.user?.email}
+                                                                                </div>
+                                                                            </>
+                                                                        )}
                                                                     </TableCell>
                                                                     <TableCell>{assignment.department || '—'}</TableCell>
                                                                     <TableCell className="text-right font-medium">{assignment.quantity}</TableCell>
@@ -1328,9 +1562,9 @@ const InventoryManagement: React.FC = () => {
                                                                                 assignment.status === 'assigned' ? 'Assigned' : 'Closed'}
                                                                         </Badge>
                                                                     </TableCell>
-                                                                    {selectedItem.isRefundable && (
+                                                                    {(selectedItem.isRefundable || currentUser?.role?.name === 'Admin') && (
                                                                         <TableCell className="text-right">
-                                                                            {assignment.status === 'assigned' && (
+                                                                            {assignment.status === 'assigned' && selectedItem.isRefundable && (
                                                                                 <Button
                                                                                     size="sm"
                                                                                     variant="ghost"
@@ -1342,6 +1576,17 @@ const InventoryManagement: React.FC = () => {
                                                                                     }}
                                                                                 >
                                                                                     <History className="h-4 w-4" />
+                                                                                </Button>
+                                                                            )}
+                                                                            {assignment.status === 'assigned' && !selectedItem.isRefundable && currentUser?.role?.name === 'Admin' && (
+                                                                                <Button
+                                                                                    size="sm"
+                                                                                    variant="ghost"
+                                                                                    className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                                                                                    title="Delete Mistaken Assignment"
+                                                                                    onClick={() => handleDeleteAssignmentClick(assignment.id)}
+                                                                                >
+                                                                                    <Trash2 className="h-4 w-4" />
                                                                                 </Button>
                                                                             )}
                                                                         </TableCell>

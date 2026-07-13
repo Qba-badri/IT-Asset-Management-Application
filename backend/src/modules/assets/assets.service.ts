@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, EntityManager, Like } from 'typeorm';
-import { Asset, AssetStatus } from '../../entities/asset.entity';
+import { Asset, AssetStatus, AssetCondition } from '../../entities/asset.entity';
 import { AssetHistory, AssetAction } from '../../entities/asset-history.entity';
 import { AssetPhoto } from '../../entities/asset-photo.entity';
 import { User } from '../../entities/user.entity';
@@ -312,9 +312,12 @@ export class AssetsService {
     return savedAsset;
   }
 
-  async undeploy(id: number, reason: string, performedBy?: number): Promise<Asset> {
+  async undeploy(id: number, reason: string, condition: AssetCondition, performedBy?: number): Promise<Asset> {
     if (!reason || !reason.trim()) {
       throw new BadRequestException('A reason is required to undeploy an asset');
+    }
+    if (!condition) {
+      throw new BadRequestException('The asset condition on return is required to undeploy an asset');
     }
 
     const asset = await this.findOne(id);
@@ -326,11 +329,13 @@ export class AssetsService {
     asset.assignedTo = null;
     asset.assignedToId = null;
     asset.status = AssetStatus.AVAILABLE;
+    asset.condition = condition;
 
     const savedAsset = await this.assetsRepository.save(asset);
     await this.logAction(id, AssetAction.CHECKIN, {
       userId: performedBy,
-      notes: `Returned to inventory. Reason: ${reason}`,
+      assignedToId: previousAssignedToId,
+      notes: `Returned to inventory. Condition: ${condition}. Reason: ${reason}`,
     });
     await this.logAuditEvent(AuditAction.RETURN, id, performedBy, {
       assetTag: asset.assetTag,
@@ -339,6 +344,7 @@ export class AssetsService {
       returnedByName: previousUser ? `${previousUser.firstName} ${previousUser.lastName}` : undefined,
       returnedByEmail: previousUser?.email,
       reason,
+      conditionOnReturn: condition,
     });
     return savedAsset;
   }
@@ -462,7 +468,20 @@ export class AssetsService {
     if (asset.assignedToId || asset.location || asset.site) {
       throw new BadRequestException('Cannot delete an asset that is currently assigned to a user or location. Please undeploy it first.');
     }
-    await this.assetsRepository.remove(asset);
+
+    // Assets that were ever deployed have assignment history and appear in
+    // audit reports — they must be disposed, not deleted, to keep audit trails intact.
+    const assignmentHistoryCount = await this.historyRepository.count({
+      where: [
+        { assetId: id, action: AssetAction.CHECKOUT },
+        { assetId: id, action: AssetAction.CHECKIN },
+      ],
+    });
+    if (assignmentHistoryCount > 0) {
+      throw new BadRequestException('This asset has assignment history and appears in audit reports. It cannot be deleted — dispose it instead.');
+    }
+
+    await this.assetsRepository.softRemove(asset);
   }
 
 

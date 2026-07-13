@@ -177,7 +177,7 @@ export const licenseService = {
         return response.data;
     },
 
-    adjustSeats: async (licenseId: number, data: { seats: number; reason?: string }): Promise<License> => {
+    adjustSeats: async (licenseId: number, data: { seats: number; usedSeats?: number; reason: string }): Promise<License> => {
         const response = await apiClient.patch(`/licenses/${licenseId}/adjust-seats`, data);
         return response.data;
     },

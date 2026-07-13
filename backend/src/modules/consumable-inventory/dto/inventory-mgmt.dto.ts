@@ -1,5 +1,6 @@
-import { IsString, IsNumber, IsBoolean, IsOptional, IsEnum, IsDateString, Min } from 'class-validator';
+import { IsString, IsNumber, IsBoolean, IsOptional, IsEnum, IsDateString, IsNotEmpty, IsIn, Min, ValidateIf } from 'class-validator';
 import { InventoryTransactionType } from '../../../entities/inventory-transaction.entity';
+import { InventoryAssignmentTargetType } from '../../../entities/inventory-assignment.entity';
 
 export class CreateInventoryCategoryDto {
     @IsString()
@@ -89,8 +90,17 @@ export class CreateInventoryAssignmentDto {
     @IsNumber()
     itemId: number;
 
+    @IsOptional()
+    @IsEnum(InventoryAssignmentTargetType)
+    targetType?: InventoryAssignmentTargetType;
+
+    @ValidateIf((dto) => (dto.targetType || InventoryAssignmentTargetType.PERSON) === InventoryAssignmentTargetType.PERSON)
     @IsNumber()
-    userId: number;
+    userId?: number;
+
+    @ValidateIf((dto) => dto.targetType === InventoryAssignmentTargetType.LOCATION)
+    @IsString()
+    location?: string;
 
     @IsNumber()
     @Min(1)
@@ -109,13 +119,20 @@ export class CreateInventoryReturnDto {
     @IsNumber()
     assignmentId: number;
 
-    @IsOptional()
     @IsString()
-    condition?: string;
+    @IsNotEmpty({ message: 'The item condition is required to process a return' })
+    @IsIn(['good', 'fair', 'damaged', 'lost'], { message: 'Condition must be one of: good, fair, damaged, lost' })
+    condition: string;
 
     @IsOptional()
     @IsString()
     remarks?: string;
+}
+
+export class DeleteAssignmentDto {
+    @IsString()
+    @IsNotEmpty({ message: 'A reason is required to delete this assignment' })
+    reason: string;
 }
 
 export class AdjustStockDto {
@@ -123,12 +140,13 @@ export class AdjustStockDto {
     itemId: number;
 
     @IsNumber()
+    @Min(1, { message: 'Quantity must be greater than zero' })
     quantity: number;
 
     @IsEnum(InventoryTransactionType)
     type: InventoryTransactionType;
 
-    @IsOptional()
     @IsString()
-    notes?: string;
+    @IsNotEmpty({ message: 'A reason is required for stock adjustments' })
+    notes: string;
 }

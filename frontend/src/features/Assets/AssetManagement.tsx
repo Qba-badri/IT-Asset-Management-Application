@@ -148,9 +148,11 @@ const AssetManagement: React.FC = () => {
         validateForm: validateUndeployForm,
         resetForm: resetUndeployForm
     } = useForm({
-        reason: ''
+        reason: '',
+        condition: ''
     }, {
-        reason: { required: true, minLength: 5 }
+        reason: { required: true, minLength: 5 },
+        condition: { required: true }
     });
 
     const {
@@ -409,11 +411,11 @@ const AssetManagement: React.FC = () => {
     const handleDelete = (id: number) => {
         setConfirmState({
             show: true, title: 'Delete Asset',
-            message: 'Are you sure you want to permanently delete this asset? This action cannot be undone.',
+            message: 'Are you sure you want to delete this asset? Assets with assignment history cannot be deleted and must be disposed instead.',
             type: 'danger',
             onConfirm: async () => {
                 try { await assetService.deleteAsset(id); showToast('Asset deleted', 'success'); loadData(); }
-                catch { showToast('Failed to delete asset', 'error'); }
+                catch (err: any) { showToast(err?.response?.data?.message || 'Failed to delete asset', 'error'); }
                 setConfirmState(prev => ({ ...prev, show: false }));
             },
         });
@@ -461,7 +463,7 @@ const AssetManagement: React.FC = () => {
 
     const handleOpenUndeploy = (id: number) => {
         setSelectedAssetId(id);
-        resetUndeployForm({ reason: '' });
+        resetUndeployForm({ reason: '', condition: '' });
         setShowUndeployModal(true);
     };
 
@@ -470,7 +472,7 @@ const AssetManagement: React.FC = () => {
         if (!selectedAssetId || !validateUndeployForm()) return;
         try {
             setSubmittingAction(true);
-            await assetService.undeployAsset(selectedAssetId, undeployFormData.reason, currentUser?.id ? Number(currentUser.id) : undefined);
+            await assetService.undeployAsset(selectedAssetId, undeployFormData.reason, undeployFormData.condition, currentUser?.id ? Number(currentUser.id) : undefined);
             showToast('Asset undeployed', 'success');
             setShowUndeployModal(false); loadData();
         } catch { showToast('Failed to undeploy', 'error'); }
@@ -815,7 +817,7 @@ const AssetManagement: React.FC = () => {
                 </div>
             </PageHeader>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
                 <StatCard
                     title="Total Assets"
                     value={assets.length}
@@ -851,7 +853,7 @@ const AssetManagement: React.FC = () => {
 
             <Card>
                 <CardContent className="p-0">
-                    <div className="border-b px-6 flex items-center justify-between bg-card/50">
+                    <div className="border-b px-6 flex items-center justify-between gap-4 bg-card/50 overflow-x-auto no-scrollbar">
                         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabKey)}>
                             <TabsList className="bg-transparent h-auto p-0 gap-8 border-none flex justify-start">
                                 {tabs.map((tab) => (
@@ -875,7 +877,7 @@ const AssetManagement: React.FC = () => {
                             </TabsList>
                         </Tabs>
 
-                        <div className="pb-3 md:pb-0 md:w-64">
+                        <div className="pb-3 md:pb-0 md:w-64 shrink-0">
                             <div className="relative">
                                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                                 <Input
@@ -1430,6 +1432,31 @@ const AssetManagement: React.FC = () => {
                                 onBlur={() => handleUndeployBlur('reason')}
                                 placeholder="e.g. Employee offboarding, asset upgrade, damaged unit..."
                             />
+                        </FormField>
+
+                        <FormField
+                            id="undeployCondition"
+                            label="Condition on Return"
+                            required
+                            error={undeployErrors.condition}
+                            hint="Physical state of the asset as received back"
+                        >
+                            <select
+                                id="undeployCondition"
+                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                value={undeployFormData.condition}
+                                onChange={(e) => handleUndeployChange('condition', e.target.value)}
+                                onBlur={() => handleUndeployBlur('condition')}
+                            >
+                                <option value="">Select condition...</option>
+                                <option value="new">New</option>
+                                <option value="excellent">Excellent</option>
+                                <option value="good">Good</option>
+                                <option value="fair">Fair</option>
+                                <option value="poor">Poor</option>
+                                <option value="damaged">Damaged</option>
+                                <option value="lost">Lost</option>
+                            </select>
                         </FormField>
 
                         <DialogFooter className="pt-4">

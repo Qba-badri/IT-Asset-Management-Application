@@ -8,6 +8,7 @@ import { InventoryPurchase } from '../../entities/inventory-purchase.entity';
 import { InventoryAssignment } from '../../entities/inventory-assignment.entity';
 import { InventoryReturn } from '../../entities/inventory-return.entity';
 import { InventoryTransaction } from '../../entities/inventory-transaction.entity';
+import { AuditEvent } from '../../entities/audit-event.entity';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
@@ -19,6 +20,7 @@ import { AuthModule } from '../auth/auth.module';
             InventoryAssignment,
             InventoryReturn,
             InventoryTransaction,
+            AuditEvent,
         ]),
         AuthModule,
     ],

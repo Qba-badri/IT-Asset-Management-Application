@@ -111,7 +111,6 @@ export interface AssignmentKpis {
   bulkActive: number;
   // KPI 10
   totalOverdue: number;
-  overdueExplicit: number;
   overdueImplicit: number;
   // KPI 11
   returnRate: number;
@@ -218,6 +217,35 @@ export interface DashboardAlerts {
 }
 
 // ─────────────────────────────────────────────
+// Recent Assignment Widgets
+// ─────────────────────────────────────────────
+export interface RecentAssetAssignment {
+  id: number;
+  assetName: string;
+  assetTag: string;
+  assignedTo: string;
+  assignedDate: string;
+  status: string;
+}
+
+export interface RecentLicenseAssignment {
+  id: number;
+  licenseName: string;
+  assignedTo: string;
+  expiryDate: string | null;
+  status: 'active' | 'expiring_soon' | 'expired';
+}
+
+export interface RecentInventoryAssignment {
+  id: number;
+  itemName: string;
+  assignedTo: string;
+  quantity: number;
+  assignedDate: string;
+  status: string;
+}
+
+// ─────────────────────────────────────────────
 // Dashboard Service — all API calls
 // ─────────────────────────────────────────────
 export const dashboardService = {
@@ -303,6 +331,24 @@ export const dashboardService = {
   /** Recent activity feed */
   async getRecentActivity(filters?: DashboardFilters): Promise<unknown[]> {
     const r = await apiClient.get('/api/dashboard/recent-activity', { params: filters });
+    return r.data;
+  },
+
+  /** KPI card — last 10 asset assignments */
+  async getRecentAssetAssignments(limit = 10): Promise<RecentAssetAssignment[]> {
+    const r = await apiClient.get<RecentAssetAssignment[]>('/api/dashboard-widgets/recent-assets', { params: { limit } });
+    return r.data;
+  },
+
+  /** KPI card — last 10 license assignments */
+  async getRecentLicenseAssignments(limit = 10): Promise<RecentLicenseAssignment[]> {
+    const r = await apiClient.get<RecentLicenseAssignment[]>('/api/dashboard-widgets/recent-licenses', { params: { limit } });
+    return r.data;
+  },
+
+  /** KPI card — last 10 inventory assignments */
+  async getRecentInventoryAssignments(limit = 10): Promise<RecentInventoryAssignment[]> {
+    const r = await apiClient.get<RecentInventoryAssignment[]>('/api/dashboard-widgets/recent-inventory', { params: { limit } });
     return r.data;
   },
 };
