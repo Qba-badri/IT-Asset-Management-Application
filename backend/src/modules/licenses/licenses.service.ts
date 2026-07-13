@@ -222,11 +222,26 @@ export class LicensesService {
     // Update only the changed columns. Saving the relation-loaded entity makes
     // TypeORM diff license.renewals (which lacks the renewal saved above) and
     // try to null its license_id, violating the not-null constraint.
+    // Apply the cost delta to the license's total cost for the new term.
+    const currentTotal =
+      Number(license.totalCost) ||
+      Number(license.unitPrice || 0) * (license.totalSeats || 1);
+    const newTotal = Math.max(0, currentTotal + Number(dto.costChange || 0));
+
     await this.licenseRepository.update(id, {
       expiryDate: dto.newExpiryDate,
       nextRenewalDate: dto.newExpiryDate,
+      totalCost: newTotal,
     });
-    await this.logHistory(id, LicenseAction.RENEWED, userId, undefined, dto.remarks);
+    await this.logHistory(
+      id,
+      LicenseAction.RENEWED,
+      userId,
+      undefined,
+      dto.remarks ||
+        `Renewed until ${new Date(dto.newExpiryDate).toISOString().split('T')[0]}` +
+        (dto.costChange ? `, cost change ${dto.costChange}` : ''),
+    );
     return this.findOne(id);
   }
 
