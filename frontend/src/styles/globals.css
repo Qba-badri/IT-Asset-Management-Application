@@ -23,11 +23,16 @@
     --success: 142.1 70.6% 45.3%;
     --success-foreground: 210 40% 98%;
     --warning: 38 92% 50%;
-    --warning-foreground: 48 96% 89%;
+    --warning-foreground: 26 83% 14%;
     --border: 214.3 32% 91%;
     --input: 214.3 32% 91%;
     --ring: 221.2 83.2% 53.3%;
-    --radius: 1.25rem;
+    --radius: 0.75rem;
+    --sidebar: 0 0% 100%;
+    --sidebar-foreground: 224 71.4% 4.1%;
+    --sidebar-accent: 210 40% 96.1%;
+    --sidebar-accent-foreground: 222.2 47.4% 11.2%;
+    --sidebar-border: 214.3 32% 91%;
   }
 
   .dark {
@@ -47,9 +52,18 @@
     --accent-foreground: 210 20% 98%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 100%;
+    --success: 142.1 70.6% 45.3%;
+    --success-foreground: 144 61% 10%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 26 83% 14%;
     --border: 210 10% 30%;
     --input: 210 10% 30%;
     --ring: 217.2 91.2% 59.8%;
+    --sidebar: 224 71.4% 4.1%;
+    --sidebar-foreground: 210 20% 98%;
+    --sidebar-accent: 210 10% 20%;
+    --sidebar-accent-foreground: 210 20% 98%;
+    --sidebar-border: 210 10% 30%;
   }
 }
 
@@ -59,7 +73,7 @@
   }
 
   body {
-    background-color: #f9fafb;
+    background-color: hsl(var(--background));
     color: hsl(var(--foreground));
     font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
@@ -83,7 +97,7 @@
 
 @layer components {
   .glass-card {
-    @apply bg-white border border-gray-200 shadow-sm;
+    @apply bg-card border border-border shadow-sm;
   }
 
   .hover-lift {
@@ -91,11 +105,11 @@
   }
 
   .gradient-blue {
-    @apply bg-blue-600;
+    @apply bg-primary;
   }
 
   .card-base {
-    @apply bg-white rounded-xl border border-gray-200;
+    @apply bg-card rounded-lg border border-border;
   }
 }
 
@@ -115,6 +129,16 @@
 
 ::-webkit-scrollbar-thumb:hover {
   @apply bg-muted-foreground/30;
+}
+
+/* Hides the scrollbar while keeping an element scrollable (used on horizontally-scrolling tab/filter rows) */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 /* Print styles */

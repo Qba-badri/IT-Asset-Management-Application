@@ -55,6 +55,7 @@ const AssetManagement: React.FC = () => {
     // Modal States
     const [showAssetModal, setShowAssetModal] = useState(false);
     const [showDeployModal, setShowDeployModal] = useState(false);
+    const [showUndeployModal, setShowUndeployModal] = useState(false);
     const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
     const [showMaintenanceCompleteModal, setShowMaintenanceCompleteModal] = useState(false);
     const [showDisposalModal, setShowDisposalModal] = useState(false);
@@ -130,11 +131,26 @@ const AssetManagement: React.FC = () => {
         building: '',
         floor: '',
         roomDesk: '',
-        deploymentDate: ''
+        deploymentDate: '',
+        reason: ''
     }, {
         targetType: { required: true },
         userId: { custom: (val, all) => (all.targetType === 'PERSON' && !val) ? 'User is required for PERSON assignment.' : null },
-        deploymentDate: { required: true }
+        deploymentDate: { required: true },
+        reason: { required: true, minLength: 5 }
+    });
+
+    const {
+        values: undeployFormData,
+        errors: undeployErrors,
+        handleChange: handleUndeployChange,
+        handleBlur: handleUndeployBlur,
+        validateForm: validateUndeployForm,
+        resetForm: resetUndeployForm
+    } = useForm({
+        reason: ''
+    }, {
+        reason: { required: true, minLength: 5 }
     });
 
     const {
@@ -420,7 +436,8 @@ const AssetManagement: React.FC = () => {
             building: asset?.building || '',
             floor: asset?.floor || '',
             roomDesk: asset?.roomDesk || '',
-            deploymentDate: new Date().toISOString().split('T')[0]
+            deploymentDate: new Date().toISOString().split('T')[0],
+            reason: ''
         });
         setShowDeployModal(true);
     };
@@ -442,9 +459,22 @@ const AssetManagement: React.FC = () => {
         finally { setSubmittingAction(false); }
     };
 
-    const handleUndeploy = async (id: number) => {
-        try { await assetService.undeployAsset(id, currentUser?.id ? Number(currentUser.id) : undefined); showToast('Asset undeployed', 'success'); loadData(); }
-        catch { showToast('Failed to undeploy', 'error'); }
+    const handleOpenUndeploy = (id: number) => {
+        setSelectedAssetId(id);
+        resetUndeployForm({ reason: '' });
+        setShowUndeployModal(true);
+    };
+
+    const handleUndeploy = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedAssetId || !validateUndeployForm()) return;
+        try {
+            setSubmittingAction(true);
+            await assetService.undeployAsset(selectedAssetId, undeployFormData.reason, currentUser?.id ? Number(currentUser.id) : undefined);
+            showToast('Asset undeployed', 'success');
+            setShowUndeployModal(false); loadData();
+        } catch { showToast('Failed to undeploy', 'error'); }
+        finally { setSubmittingAction(false); }
     };
 
     const handleOpenMaintenance = (id: number) => {
@@ -934,7 +964,7 @@ const AssetManagement: React.FC = () => {
                                                                 ] : [
                                                                     { label: 'Edit', icon: <Edit className="h-4 w-4" />, onClick: () => handleOpenEdit(asset), variant: 'default' as const },
                                                                     ...(asset.status === 'available' ? [{ label: getDeployLabel(asset.category), icon: <User className="h-4 w-4" />, onClick: () => handleOpenDeploy(asset.id), variant: 'success' as const }] : []),
-                                                                    ...(asset.status === 'deployed' ? [{ label: 'Undeploy', icon: <User className="h-4 w-4" />, onClick: () => handleUndeploy(asset.id), variant: 'default' as const }] : []),
+                                                                    ...(asset.status === 'deployed' ? [{ label: 'Undeploy', icon: <User className="h-4 w-4" />, onClick: () => handleOpenUndeploy(asset.id), variant: 'default' as const }] : []),
                                                                     ...(asset.status !== 'disposed' && asset.status !== 'maintenance' && asset.status !== 'repair' ? [
                                                                         { label: 'Schedule Maintenance', icon: <Wrench className="h-4 w-4" />, onClick: () => handleOpenMaintenance(asset.id), variant: 'default' as const },
                                                                         { 
@@ -1354,6 +1384,22 @@ const AssetManagement: React.FC = () => {
                             />
                         </FormField>
 
+                        <FormField
+                            id="deployReason"
+                            label="Reason for Deployment"
+                            required
+                            error={deployErrors.reason}
+                            hint="Explain why this asset is being deployed"
+                        >
+                            <Textarea
+                                rows={3}
+                                value={deployFormData.reason}
+                                onChange={(e) => handleDeployChange('reason', e.target.value)}
+                                onBlur={() => handleDeployBlur('reason')}
+                                placeholder="e.g. New hire onboarding, replacement for faulty unit..."
+                            />
+                        </FormField>
+
                         <DialogFooter className="pt-4">
                             <Button type="button" variant="outline" onClick={() => setShowDeployModal(false)}>Cancel</Button>
                             <Button type="submit" disabled={submittingAction}>
@@ -1364,6 +1410,38 @@ const AssetManagement: React.FC = () => {
                     </form>
                 </DialogContent>
             </Dialog >
+
+            {/* Undeploy Dialog */}
+            <Dialog open={showUndeployModal} onOpenChange={setShowUndeployModal}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader><DialogTitle>Undeploy Asset</DialogTitle></DialogHeader>
+                    <form onSubmit={handleUndeploy} className="space-y-4 pt-4">
+                        <FormField
+                            id="undeployReason"
+                            label="Reason for Return"
+                            required
+                            error={undeployErrors.reason}
+                            hint="Explain why this asset is being returned to inventory"
+                        >
+                            <Textarea
+                                rows={3}
+                                value={undeployFormData.reason}
+                                onChange={(e) => handleUndeployChange('reason', e.target.value)}
+                                onBlur={() => handleUndeployBlur('reason')}
+                                placeholder="e.g. Employee offboarding, asset upgrade, damaged unit..."
+                            />
+                        </FormField>
+
+                        <DialogFooter className="pt-4">
+                            <Button type="button" variant="outline" onClick={() => setShowUndeployModal(false)}>Cancel</Button>
+                            <Button type="submit" disabled={submittingAction}>
+                                {submittingAction ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+                                Undeploy Asset
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </DialogContent>
+            </Dialog>
 
             {/* Maintenance Dialog */}
             <Dialog open={showMaintenanceModal} onOpenChange={setShowMaintenanceModal}>

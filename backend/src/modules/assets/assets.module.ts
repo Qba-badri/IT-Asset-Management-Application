@@ -10,11 +10,12 @@ import { User } from '../../entities/user.entity';
 import { Category } from '../../entities/category.entity';
 import { Brand } from '../../entities/brand.entity';
 import { Vendor } from '../../entities/vendor.entity';
+import { AuditEvent } from '../../entities/audit-event.entity';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Asset, AssetHistory, AssetPhoto, User, Category, Brand, Vendor]),
+    TypeOrmModule.forFeature([Asset, AssetHistory, AssetPhoto, User, Category, Brand, Vendor, AuditEvent]),
     AuthModule,
   ],
   controllers: [AssetsController],

@@ -11,13 +11,19 @@ export interface AuditReportEntry {
   action: string;
   entityType: string;
   entityId: number | null;
-  entityLabel: string;
+  entityName: string;
+  entityCode: string;
+  personName: string;
+  personEmail: string;
   actorName: string;
+  actorEmail: string;
+  reason: string;
   details: string;
 }
 
 export interface AuditReportQuery {
   module?: AuditReportModule;
+  action?: string;
   search?: string;
   startDate?: string;
   endDate?: string;
@@ -28,6 +34,13 @@ export interface AuditReportQuery {
 export interface AuditReportResponse {
   data: AuditReportEntry[];
   total: number;
+}
+
+export interface AuditReportStats {
+  total: number;
+  asset: number;
+  license: number;
+  inventory: number;
 }
 
 // ─── Service ──────────────────────────────────────────────────────
@@ -46,6 +59,13 @@ const downloadBlob = (blob: Blob, filename: string) => {
 export const auditReportService = {
   async getAll(query?: AuditReportQuery): Promise<AuditReportResponse> {
     const response = await apiClient.get<AuditReportResponse>('/api/audit-report', {
+      params: query,
+    });
+    return response.data;
+  },
+
+  async getStats(query?: AuditReportQuery): Promise<AuditReportStats> {
+    const response = await apiClient.get<AuditReportStats>('/api/audit-report/stats', {
       params: query,
     });
     return response.data;

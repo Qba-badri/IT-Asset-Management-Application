@@ -16,6 +16,12 @@ export class AuditReportController {
     return this.auditReportService.findAll(query);
   }
 
+  @Get('stats')
+  @Permissions('reports.view')
+  getStats(@Query() query: AuditReportQueryDto) {
+    return this.auditReportService.getStats(query);
+  }
+
   @Get('export')
   @Permissions('reports.export')
   async export(

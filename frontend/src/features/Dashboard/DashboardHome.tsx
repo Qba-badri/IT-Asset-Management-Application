@@ -40,20 +40,23 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import Chart from 'react-apexcharts';
 import {
   RefreshCw, Server, Key, Layers, AlertTriangle,
   TrendingUp, TrendingDown, Clock, Shield, DollarSign,
   RotateCcw, CheckCircle2, XCircle, Boxes,
-  BarChart2, Tag, Info,
+  BarChart2, Tag, Info, Package, ArrowRight,
 } from 'lucide-react';
 import {
   dashboardService,
   GlobalSummary, AssetStats, LicenseStats, UserStats,
   DashboardAlerts, SerializedUnitKpis, InventoryKpis,
   AssignmentKpis, AssetFinancialKpis, AuditActivityKpis,
+  RecentAssetAssignment, RecentLicenseAssignment, RecentInventoryAssignment,
 } from '../../services/dashboardService';
 import { useToast } from '../../context/ToastContext';
+import { CHART_COLORS } from '../../lib/chartColors';
 import { useCurrency } from '../../context/CurrencyContext';
 import { PageHeader } from '../../components/shared/PageHeader';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../../components/ui/tooltip';
@@ -198,6 +201,108 @@ const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ chi
   <div className={`bg-card border rounded-xl p-6 ${className}`}>{children}</div>
 );
 
+// Status badge color map for the recent-assignment widget cards
+const STATUS_BADGE_COLORS: Record<string, string> = {
+  deployed: 'text-blue-700 bg-blue-50 border-blue-200',
+  available: 'text-green-700 bg-green-50 border-green-200',
+  active: 'text-green-700 bg-green-50 border-green-200',
+  assigned: 'text-blue-700 bg-blue-50 border-blue-200',
+  returned: 'text-slate-700 bg-slate-50 border-slate-200',
+  closed: 'text-slate-700 bg-slate-50 border-slate-200',
+  maintenance: 'text-amber-700 bg-amber-50 border-amber-200',
+  repair: 'text-amber-700 bg-amber-50 border-amber-200',
+  expiring_soon: 'text-amber-700 bg-amber-50 border-amber-200',
+  expired: 'text-red-700 bg-red-50 border-red-200',
+  lost: 'text-red-700 bg-red-50 border-red-200',
+  stolen: 'text-red-700 bg-red-50 border-red-200',
+  retired: 'text-slate-700 bg-slate-50 border-slate-200',
+  disposed: 'text-slate-700 bg-slate-50 border-slate-200',
+};
+
+const StatusBadge: React.FC<{ status: string }> = ({ status }) => (
+  <span
+    className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border whitespace-nowrap
+      ${STATUS_BADGE_COLORS[status?.toLowerCase()] || 'text-muted-foreground bg-muted border-border'}`}
+  >
+    {status?.replace(/_/g, ' ') || 'unknown'}
+  </span>
+);
+
+const formatShortDate = (d: string | null): string =>
+  d ? new Date(d).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+
+// A single row of a recent-assignment widget card
+interface AssignmentRowData {
+  primaryLabel: string;   // column header for the primary field, e.g. "Asset Name"
+  primary: string;        // e.g. asset/license/item name
+  secondaryLabel: string; // e.g. "Assigned To"
+  secondary: string;
+  metaLabel: string;      // e.g. "Assigned Date" / "Expiry Date"
+  meta: string;
+  quantity?: number;      // Inventory card only
+  status?: string;        // omitted for the Inventory card
+}
+
+// Reusable widget card: header (icon + title), scrollable stacked-row list, "View All" footer link.
+// Rows are laid out as two lines (name+status, then assigned-to · date) instead of a cramped
+// multi-column table, so full names/dates stay readable instead of being ellipsis-truncated.
+interface AssignmentWidgetCardProps {
+  icon: React.ReactNode;
+  accent: string;
+  title: string;
+  viewAllHref: string;
+  rows: AssignmentRowData[];
+  emptyLabel: string;
+}
+
+const AssignmentWidgetCard: React.FC<AssignmentWidgetCardProps> = ({
+  icon, accent, title, viewAllHref, rows, emptyLabel,
+}) => (
+  <Card className="flex flex-col p-0 overflow-hidden">
+    <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
+      <span className={`p-2 rounded-lg ${accent}`}>{icon}</span>
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+    </div>
+    <div className="flex-1 overflow-y-auto max-h-80">
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">{emptyLabel}</p>
+      ) : (
+        <ul>
+          {rows.map((row, i) => (
+            <li key={i} className="px-5 py-3 border-b border-border last:border-0 hover:bg-accent/40">
+              <div className="flex items-start justify-between gap-3">
+                <p className="font-medium text-foreground text-sm break-words" title={row.primary}>{row.primary}</p>
+                {row.status && <StatusBadge status={row.status} />}
+              </div>
+              <div className="flex items-end justify-between gap-3 mt-1.5">
+                <span className="text-xs text-muted-foreground break-words" title={row.secondary}>
+                  {row.secondaryLabel}: <span className="text-foreground">{row.secondary}</span>
+                </span>
+                <div className="flex flex-col items-end gap-0.5 shrink-0">
+                  {row.quantity !== undefined && (
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">
+                      Qty: <span className="text-foreground font-medium">{row.quantity}</span>
+                    </span>
+                  )}
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    {row.metaLabel}: <span className="text-foreground font-medium">{row.meta}</span>
+                  </span>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+    <Link
+      to={viewAllHref}
+      className="flex items-center justify-center gap-1 px-5 py-3 text-xs font-semibold text-blue-600 border-t border-border hover:bg-accent/40 transition-colors"
+    >
+      View All <ArrowRight className="w-3 h-3" />
+    </Link>
+  </Card>
+);
+
 // KPI 5 / KPI 14 — Alert tier chip
 const AlertChip: React.FC<{ label: string; count: number; color: string }> = ({ label, count, color }) => (
   <div className={`flex items-center justify-between px-3 py-2 rounded-lg ${color}`}>
@@ -236,16 +341,7 @@ const LicenseRow: React.FC<{
 // APEXCHARTS CONFIGURATIONS
 // ─────────────────────────────────────────────
 
-const CHART_COLORS = {
-  blue: '#2563eb',
-  green: '#16a34a',
-  amber: '#f59e0b',
-  red: '#dc2626',
-  purple: '#7c3aed',
-  slate: '#64748b',
-  sky: '#0ea5e9',
-  indigo: '#6366f1',
-};
+// Palette shared with the analytics dashboard — see lib/chartColors.ts
 
 const buildDonutOptions = (labels: string[], total: number): ApexCharts.ApexOptions => ({
   chart: { type: 'donut', fontFamily: 'Inter, sans-serif', toolbar: { show: false } },
@@ -314,6 +410,9 @@ interface DashboardData {
   alerts: DashboardAlerts | null;
   licenseUtil: { license_softwareName: string; license_totalSeats: number; license_usedSeats: number }[];
   stockMovement: { thisMonth: { reason: string; count: string }[]; lastMonth: { reason: string; count: string }[] };
+  recentAssets: RecentAssetAssignment[];
+  recentLicenses: RecentLicenseAssignment[];
+  recentInventory: RecentInventoryAssignment[];
 }
 
 const EMPTY_DATA: DashboardData = {
@@ -322,6 +421,7 @@ const EMPTY_DATA: DashboardData = {
   userStats: null, financialKpis: null, auditActivity: null,
   alerts: null, licenseUtil: [],
   stockMovement: { thisMonth: [], lastMonth: [] },
+  recentAssets: [], recentLicenses: [], recentInventory: [],
 };
 
 // ─────────────────────────────────────────────
@@ -349,6 +449,7 @@ const DashboardHome: React.FC = () => {
         globalRes, assetsRes, serializedRes, invKpiRes,
         assignRes, licenseRes, userRes, financialRes,
         auditRes, alertsRes, licenseUtilRes, stockMovRes,
+        recentAssetsRes, recentLicensesRes, recentInventoryRes,
       ] = await Promise.allSettled([
         dashboardService.getGlobalSummary(f),         // KPI 1
         dashboardService.getAssetStats(f),             // KPI 2, 3, 5
@@ -362,6 +463,9 @@ const DashboardHome: React.FC = () => {
         dashboardService.getAlerts(f),                 // Alert strip
         dashboardService.getLicenseUtilization(f),     // KPI 13 detail
         dashboardService.getStockMovement(f),          // Stock bar chart
+        dashboardService.getRecentAssetAssignments(10),     // Recent asset assignments card
+        dashboardService.getRecentLicenseAssignments(10),   // Recent license assignments card
+        dashboardService.getRecentInventoryAssignments(10), // Recent inventory assignments card
       ]);
 
       const safe = <T,>(r: PromiseSettledResult<T>): T | null =>
@@ -380,6 +484,9 @@ const DashboardHome: React.FC = () => {
         alerts: safe(alertsRes),
         licenseUtil: (safe(licenseUtilRes) as DashboardData['licenseUtil']) ?? [],
         stockMovement: (safe(stockMovRes) as DashboardData['stockMovement']) ?? { thisMonth: [], lastMonth: [] },
+        recentAssets: safe(recentAssetsRes) ?? [],
+        recentLicenses: safe(recentLicensesRes) ?? [],
+        recentInventory: safe(recentInventoryRes) ?? [],
       });
 
       setLastUpdated(new Date());
@@ -978,6 +1085,70 @@ const DashboardHome: React.FC = () => {
               ))}
             </div>
           </Card>
+        </div>
+
+        {/* ════════════════════════════════════
+            SECTION 8 — Recent Assignments
+            Last 10 asset / license / inventory assignments
+        ════════════════════════════════════ */}
+        <div>
+          <SectionTitle>Recent Assignments</SectionTitle>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            {/* Asset Card */}
+            <AssignmentWidgetCard
+              icon={<Server className="w-4 h-4" />}
+              accent="text-blue-600 bg-blue-50"
+              title="Recent Asset Assignments"
+              viewAllHref="/dashboard/assets"
+              emptyLabel="No recent asset assignments"
+              rows={data.recentAssets.map((r) => ({
+                primaryLabel: 'Asset Name',
+                primary: r.assetName,
+                secondaryLabel: 'Assigned To',
+                secondary: r.assignedTo,
+                metaLabel: 'Date',
+                meta: formatShortDate(r.assignedDate),
+                status: r.status,
+              }))}
+            />
+
+            {/* License Card */}
+            <AssignmentWidgetCard
+              icon={<Key className="w-4 h-4" />}
+              accent="text-sky-600 bg-sky-50"
+              title="Recent License Assignments"
+              viewAllHref="/dashboard/licenses"
+              emptyLabel="No recent license assignments"
+              rows={data.recentLicenses.map((r) => ({
+                primaryLabel: 'License Name',
+                primary: r.licenseName,
+                secondaryLabel: 'Assigned To',
+                secondary: r.assignedTo,
+                metaLabel: 'Expires',
+                meta: formatShortDate(r.expiryDate),
+                status: r.status,
+              }))}
+            />
+
+            {/* Inventory Card */}
+            <AssignmentWidgetCard
+              icon={<Package className="w-4 h-4" />}
+              accent="text-emerald-600 bg-emerald-50"
+              title="Recent Inventory Assignments"
+              viewAllHref="/dashboard/inventory"
+              emptyLabel="No recent inventory assignments"
+              rows={data.recentInventory.map((r) => ({
+                primaryLabel: 'Item Name',
+                primary: r.itemName,
+                secondaryLabel: 'Assigned To',
+                secondary: r.assignedTo,
+                metaLabel: 'Date',
+                meta: formatShortDate(r.assignedDate),
+                quantity: r.quantity,
+              }))}
+            />
+          </div>
         </div>
 
     </div>

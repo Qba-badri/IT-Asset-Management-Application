@@ -76,7 +76,16 @@ const navigation: NavEntry[] = [
   { label: "Licenses",  icon: KeyRound,        path: "/dashboard/licenses",  requiredPermission: "licenses.view" },
   { label: "Inventory", icon: Archive,         path: "/dashboard/inventory", requiredPermission: "inventory.view" },
   { label: "Analytics", icon: BarChart3,       path: "/dashboard/analytics", requiredPermission: "reports.view" },
-  { label: "Audit Report", icon: FileSearch,   path: "/dashboard/audit-report", requiredPermission: "reports.view" },
+  {
+    label: "Audit",
+    icon: FileSearch,
+    children: [
+      { label: "Audit Overview",  icon: ClipboardList, path: "/dashboard/audit-report",             requiredPermission: "reports.view" },
+      { label: "Asset Audit",     icon: Monitor,       path: "/dashboard/audit-report?tab=assets",    requiredPermission: "reports.view" },
+      { label: "License Audit",   icon: KeyRound,      path: "/dashboard/audit-report?tab=licenses",  requiredPermission: "reports.view" },
+      { label: "Inventory Audit", icon: Archive,       path: "/dashboard/audit-report?tab=inventory", requiredPermission: "reports.view" },
+    ],
+  },
   {
     label: "Admin",
     icon: Settings,
@@ -107,7 +116,7 @@ export default function AppShell() {
 
   const [collapsed,      setCollapsed]      = useState(false);
   const [mobileOpen,     setMobileOpen]     = useState(false);
-  const [expandedGroups, setExpandedGroups] = useState<string[]>(["Admin"]);
+  const [expandedGroups, setExpandedGroups] = useState<string[]>(["Admin", "Audit"]);
   const [profile,        setProfile]        = useState<any>(null);
   const [loadingUser,    setLoadingUser]    = useState(true);
 
@@ -125,7 +134,15 @@ export default function AppShell() {
 
   const isActive = (path: string) => {
     if (path === "/dashboard") return location.pathname === "/dashboard";
-    return location.pathname.startsWith(path);
+    const [pathOnly, query] = path.split("?");
+    if (query) {
+      return location.pathname === pathOnly && location.search === `?${query}`;
+    }
+    if (pathOnly === "/dashboard/audit-report") {
+      // Bare "Audit Overview" link should only match when there's no tab query
+      return location.pathname === pathOnly && !location.search;
+    }
+    return location.pathname.startsWith(pathOnly);
   };
 
   const toggleGroup = (label: string) => {

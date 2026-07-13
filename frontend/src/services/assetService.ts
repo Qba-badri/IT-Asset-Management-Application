@@ -130,8 +130,8 @@ export const assetService = {
         return response.data;
     },
 
-    async undeployAsset(id: number, performedBy?: number): Promise<Asset> {
-        const response = await apiClient.post<Asset>(`/assets/${id}/undeploy`, { performedBy });
+    async undeployAsset(id: number, reason: string, performedBy?: number): Promise<Asset> {
+        const response = await apiClient.post<Asset>(`/assets/${id}/undeploy`, { reason, performedBy });
         return response.data;
     },
 

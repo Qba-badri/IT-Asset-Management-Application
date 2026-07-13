@@ -12,6 +12,7 @@ import { AssetHistory, AssetAction } from '../../entities/asset-history.entity';
 import { AssetPhoto } from '../../entities/asset-photo.entity';
 import { User } from '../../entities/user.entity';
 import { Category } from '../../entities/category.entity';
+import { AuditEvent, AuditAction } from '../../entities/audit-event.entity';
 import * as fs from 'fs';
 
 @Injectable()
@@ -27,7 +28,25 @@ export class AssetsService {
     private usersRepository: Repository<User>,
     @InjectRepository(Category)
     private categoryRepository: Repository<Category>,
+    @InjectRepository(AuditEvent)
+    private auditEventRepository: Repository<AuditEvent>,
   ) { }
+
+  private async logAuditEvent(
+    action: AuditAction,
+    entityId: number,
+    actorId: number | undefined,
+    metadata: Record<string, any>,
+  ) {
+    const event = this.auditEventRepository.create({
+      action,
+      entityType: 'asset',
+      entityId,
+      actorId,
+      metadata,
+    });
+    await this.auditEventRepository.save(event);
+  }
 
   private async logAction(
     assetId: number,
@@ -238,6 +257,10 @@ export class AssetsService {
     data: any,
     performedBy?: number,
   ): Promise<Asset> {
+    if (!data.reason || !data.reason.trim()) {
+      throw new BadRequestException('A reason is required to deploy an asset');
+    }
+
     const asset = await this.findOne(id);
 
     // Validate against category policy
@@ -246,11 +269,12 @@ export class AssetsService {
       throw new BadRequestException(`Category ${asset.category} does not allow ${data.targetType} assignments. Allowed: ${category.allowedTargetTypes.join(', ')}`);
     }
 
+    let assignedUser: User | null = null;
     if (data.targetType === 'PERSON') {
       if (!data.userId) throw new BadRequestException('User ID is required for PERSON assignment');
-      const user = await this.usersRepository.findOneBy({ id: data.userId });
-      if (!user) throw new NotFoundException('User not found');
-      asset.assignedTo = user;
+      assignedUser = await this.usersRepository.findOneBy({ id: data.userId });
+      if (!assignedUser) throw new NotFoundException('User not found');
+      asset.assignedTo = assignedUser;
       asset.assignedToId = data.userId;
     } else {
       // For LOCATION or others, we unassign from person
@@ -268,17 +292,36 @@ export class AssetsService {
     asset.status = AssetStatus.DEPLOYED;
 
     const savedAsset = await this.assetsRepository.save(asset);
+    const deployNotes = `Deployed to ${data.targetType}${data.targetType === 'LOCATION' ? ': ' + asset.location : ''}. Reason: ${data.reason}`;
     await this.logAction(id, AssetAction.CHECKOUT, {
       userId: performedBy,
       assignedToId: asset.assignedToId,
       location: asset.location,
-      notes: `Deployed to ${data.targetType}${data.targetType === 'LOCATION' ? ': ' + asset.location : ''}`,
+      notes: deployNotes,
+    });
+    await this.logAuditEvent(AuditAction.ISSUE, id, performedBy, {
+      assetTag: asset.assetTag,
+      assetName: asset.name,
+      targetType: data.targetType,
+      assignedToId: asset.assignedToId,
+      assignedToName: assignedUser ? `${assignedUser.firstName} ${assignedUser.lastName}` : undefined,
+      assignedToEmail: assignedUser?.email,
+      location: asset.location,
+      reason: data.reason,
     });
     return savedAsset;
   }
 
-  async undeploy(id: number, performedBy?: number): Promise<Asset> {
+  async undeploy(id: number, reason: string, performedBy?: number): Promise<Asset> {
+    if (!reason || !reason.trim()) {
+      throw new BadRequestException('A reason is required to undeploy an asset');
+    }
+
     const asset = await this.findOne(id);
+    const previousAssignedToId = asset.assignedToId;
+    const previousUser = previousAssignedToId
+      ? await this.usersRepository.findOneBy({ id: previousAssignedToId })
+      : null;
 
     asset.assignedTo = null;
     asset.assignedToId = null;
@@ -287,7 +330,15 @@ export class AssetsService {
     const savedAsset = await this.assetsRepository.save(asset);
     await this.logAction(id, AssetAction.CHECKIN, {
       userId: performedBy,
-      notes: 'Returned to inventory',
+      notes: `Returned to inventory. Reason: ${reason}`,
+    });
+    await this.logAuditEvent(AuditAction.RETURN, id, performedBy, {
+      assetTag: asset.assetTag,
+      assetName: asset.name,
+      previousAssignedToId,
+      returnedByName: previousUser ? `${previousUser.firstName} ${previousUser.lastName}` : undefined,
+      returnedByEmail: previousUser?.email,
+      reason,
     });
     return savedAsset;
   }

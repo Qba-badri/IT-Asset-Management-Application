@@ -173,6 +173,9 @@ export class InventoryManagementService {
             const item = await manager.findOne(InventoryItem, { where: { id: dto.itemId } });
             if (!item) throw new NotFoundException('Item not found');
 
+            const assignee = await manager.findOne(User, { where: { id: dto.userId } });
+            const assigneeLabel = assignee ? `${assignee.firstName} ${assignee.lastName}` : `User #${dto.userId}`;
+
             if (item.availableStock < dto.quantity) {
                 throw new BadRequestException(`Insufficient stock. Available: ${item.availableStock}`);
             }
@@ -196,7 +199,7 @@ export class InventoryManagementService {
                 referenceId: savedAssignment.id,
                 referenceType: 'assignment',
                 performedById: performerId,
-                notes: `Assigned to UID: ${dto.userId}`,
+                notes: `Assigned to ${assigneeLabel}`,
             });
             await manager.save(InventoryTransaction, transaction);
 

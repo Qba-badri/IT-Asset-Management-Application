@@ -26,6 +26,7 @@ import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { cn } from '../../lib/utils';
+import { CHART_SERIES } from '../../lib/chartColors';
 
 /* ══════════════════════ helpers ══════════════════════ */
 const num = (v: number | string | null | undefined) => Number(v ?? 0);
@@ -106,7 +107,7 @@ const AlertRow: React.FC<{ icon: React.ReactNode; label: string; count: number; 
 
 
 /* ══════════════════════ CHART DEFAULTS ══════════════════════ */
-const CHART_COLORS = ['#2563eb', '#16a34a', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2', '#db2777', '#65a30d'];
+const CHART_COLORS = CHART_SERIES;
 const chartFont = { fontFamily: 'Inter, system-ui, sans-serif' };
 
 /* ══════════════════════ MAIN COMPONENT ══════════════════════ */
@@ -129,7 +130,7 @@ const AnalyticsDashboard: React.FC = () => {
     const [inventory, setInventory] = useState<InventoryStats | null>(null);
     const [users, setUsers] = useState<UserStats | null>(null);
     const [alerts, setAlerts] = useState<AlertsData | null>(null);
-    interface ActivityLog { id: number; action: string; entityType: string; createdAt: string; }
+    interface ActivityLog { id: number; action: string; entityType: string; actorName?: string; createdAt: string; }
     const [activity, setActivity] = useState<ActivityLog[]>([]);
     const [stockMovement, setStockMovement] = useState<StockMovement>({ thisMonth: [], lastMonth: [] });
     const [licenseUtil, setLicenseUtil] = useState<LicenseUtilization[]>([]);
@@ -362,7 +363,9 @@ const AnalyticsDashboard: React.FC = () => {
                                             <p className="activity-action text-foreground">
                                                 {(log.action || '').replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c: string) => c.toUpperCase())}
                                             </p>
-                                            <p className="activity-entity text-muted-foreground">{log.entityType}</p>
+                                            <p className="activity-entity text-muted-foreground">
+                                                {log.entityType}{log.actorName ? ` · ${log.actorName}` : ''}
+                                            </p>
                                         </div>
                                         <div className="activity-time text-muted-foreground">
                                             <p>{new Date(log.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}</p>

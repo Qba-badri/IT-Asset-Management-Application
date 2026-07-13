@@ -159,6 +159,18 @@ export class DeployAssetDto {
     @IsOptional()
     deploymentDate?: Date;
 
+    @IsString()
+    reason: string;
+
+    @IsNumber()
+    @IsOptional()
+    performedBy?: number;
+}
+
+export class UndeployAssetDto {
+    @IsString()
+    reason: string;
+
     @IsNumber()
     @IsOptional()
     performedBy?: number;

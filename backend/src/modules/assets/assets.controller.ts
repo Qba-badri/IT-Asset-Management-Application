@@ -20,7 +20,7 @@ import { AssetsService } from './assets.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
-import { CreateAssetDto, UpdateAssetDto, DeployAssetDto, AssetMaintenanceDto, AssetMaintenanceCompleteDto, AssetDisposeDto } from './dto/asset.dto';
+import { CreateAssetDto, UpdateAssetDto, DeployAssetDto, UndeployAssetDto, AssetMaintenanceDto, AssetMaintenanceCompleteDto, AssetDisposeDto } from './dto/asset.dto';
 
 @Controller('assets')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -77,8 +77,8 @@ export class AssetsController {
 
   @Post(':id/undeploy')
   @Permissions('assets.manage')
-  async undeploy(@Param('id', ParseIntPipe) id: number, @Body('performedBy') performedBy?: number) {
-    return this.assetsService.undeploy(id, performedBy);
+  async undeploy(@Param('id', ParseIntPipe) id: number, @Body() body: UndeployAssetDto) {
+    return this.assetsService.undeploy(id, body.reason, body.performedBy);
   }
 
   @Post(':id/maintenance')
