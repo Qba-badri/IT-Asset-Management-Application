@@ -1,18 +1,19 @@
 // Shared chart palette so all dashboards stay visually consistent.
+// Colors follow the Tabler design language (https://github.com/tabler/tabler).
 // Named colors for single-series accents; CHART_SERIES for multi-series charts.
 
 export const CHART_COLORS = {
-    blue: '#2563eb',
-    green: '#16a34a',
-    amber: '#f59e0b',
-    red: '#dc2626',
-    purple: '#7c3aed',
-    slate: '#64748b',
-    sky: '#0ea5e9',
-    indigo: '#6366f1',
-    cyan: '#0891b2',
-    pink: '#db2777',
-    lime: '#65a30d',
+    blue: '#066fd1',
+    green: '#2fb344',
+    amber: '#f59f00',
+    red: '#d63939',
+    purple: '#ae3ec9',
+    slate: '#667382',
+    sky: '#4299e1',
+    indigo: '#4263eb',
+    cyan: '#17a2b8',
+    pink: '#d6336c',
+    lime: '#74b816',
 } as const;
 
 export const CHART_SERIES: string[] = [
@@ -31,7 +32,7 @@ export const CHART_NEUTRALS = {
     axisLabel: '#9ca3af',
     gridLine: '#f1f5f9',
     labelMuted: '#6b7280',
-    labelStrong: '#111827',
-    trackLight: '#e2e8f0',
+    labelStrong: '#1f2937',
+    trackLight: '#e5e7eb',
     trackMuted: '#cbd5e1',
 } as const;

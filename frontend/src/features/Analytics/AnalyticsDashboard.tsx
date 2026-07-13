@@ -47,7 +47,7 @@ interface KpiCardProps {
     accent?: string;
     iconBg?: string;
 }
-const KpiCard: React.FC<KpiCardProps> = ({ icon, label, value, sub, trend, accent = '#2563eb', iconBg = '#eff6ff' }) => {
+const KpiCard: React.FC<KpiCardProps> = ({ icon, label, value, sub, trend, accent = '#066fd1', iconBg = '#eff6ff' }) => {
     const trendUp = trend && trend.value >= 0;
     return (
         <Card>
@@ -246,7 +246,7 @@ const AnalyticsDashboard: React.FC = () => {
 
     const stockMovOptions: ApexCharts.ApexOptions = {
         chart: { type: 'bar', ...chartFont, toolbar: { show: false } },
-        colors: ['#cbd5e1', '#2563eb'],
+        colors: ['#cbd5e1', '#066fd1'],
         plotOptions: { bar: { columnWidth: '55%', borderRadius: 5, borderRadiusApplication: 'end' } },
         dataLabels: { enabled: false },
         xaxis: {
@@ -262,7 +262,7 @@ const AnalyticsDashboard: React.FC = () => {
 
     const luBarOptions: ApexCharts.ApexOptions = {
         chart: { type: 'bar', ...chartFont, toolbar: { show: false }, stacked: true },
-        colors: ['#2563eb', '#e2e8f0'],
+        colors: ['#066fd1', '#e2e8f0'],
         plotOptions: { bar: { borderRadius: 6, borderRadiusApplication: 'end', horizontal: true, barHeight: '55%' } },
         dataLabels: { enabled: false },
         xaxis: { categories: luLabels, labels: { style: { fontSize: '11px', colors: '#9ca3af' } } },
@@ -275,7 +275,7 @@ const AnalyticsDashboard: React.FC = () => {
     const inventoryDonutOptions: ApexCharts.ApexOptions = {
         chart: { type: 'donut', ...chartFont, toolbar: { show: false } },
         labels: ['Refundable', 'Non-Refundable'],
-        colors: ['#2563eb', '#f59e0b'],
+        colors: ['#066fd1', '#f59f00'],
         stroke: { show: false },
         dataLabels: { enabled: false },
         plotOptions: { pie: { donut: { size: '65%' } } },
@@ -311,12 +311,12 @@ const AnalyticsDashboard: React.FC = () => {
         <div className="analytics-panel">
             {/* KPIs */}
             <div className="analytics-kpi-grid">
-                <KpiCard icon={<Server size={18} />} label="Total Assets" value={num(global?.totalAssets)} sub={`${formatDisplayAmount(num(global?.totalAssetValue))} total value`} accent="#2563eb" iconBg="#eff6ff" />
-                <KpiCard icon={<Key size={18} />} label="Licenses" value={num(global?.totalLicenses)} sub="Software titles" accent="#7c3aed" iconBg="#f5f3ff" />
+                <KpiCard icon={<Server size={18} />} label="Total Assets" value={num(global?.totalAssets)} sub={`${formatDisplayAmount(num(global?.totalAssetValue))} total value`} accent="#066fd1" iconBg="#eff6ff" />
+                <KpiCard icon={<Key size={18} />} label="Licenses" value={num(global?.totalLicenses)} sub="Software titles" accent="#ae3ec9" iconBg="#f5f3ff" />
                 <KpiCard icon={<Package size={18} />} label="Inventory Items" value={num(global?.totalInventoryItems)} sub={`${num(inventory?.lowStockAlerts)} low stock`} accent="#d97706" iconBg="#fffbeb" />
                 <KpiCard icon={<Users size={18} />} label="Total Users" value={num(global?.totalUsers)} sub={`${num(users?.activeUsers)} active`} accent="#059669" iconBg="#ecfdf5" />
                 <KpiCard icon={<Activity size={18} />} label="Active Assignments" value={num(global?.activeAssignments)} sub="Currently deployed" accent="#0891b2" iconBg="#ecfeff" />
-                <KpiCard icon={<AlertCircle size={18} />} label="Open Alerts" value={num(alerts?.warrantyExpiring) + num(alerts?.lowStockItems) + num(alerts?.expiredLicenses)} sub="Requires attention" accent="#dc2626" iconBg="#fef2f2" />
+                <KpiCard icon={<AlertCircle size={18} />} label="Open Alerts" value={num(alerts?.warrantyExpiring) + num(alerts?.lowStockItems) + num(alerts?.expiredLicenses)} sub="Requires attention" accent="#d63939" iconBg="#fef2f2" />
             </div>
 
             {/* Charts row */}
@@ -386,10 +386,10 @@ const AnalyticsDashboard: React.FC = () => {
     const renderAssets = () => (
         <div className="analytics-panel">
             <div className="analytics-kpi-grid">
-                <KpiCard icon={<Server size={18} />} label="Total Assets" value={num(global?.totalAssets)} accent="#2563eb" iconBg="#eff6ff" />
+                <KpiCard icon={<Server size={18} />} label="Total Assets" value={num(global?.totalAssets)} accent="#066fd1" iconBg="#eff6ff" />
                 <KpiCard icon={<TrendingUp size={18} />} label="Utilization" value={`${num(assets?.utilizationPercentage).toFixed(1)}%`} sub="Deployed / Total" accent="#059669" iconBg="#ecfdf5" />
-                <KpiCard icon={<Cpu size={18} />} label="Recently Added" value={num(assets?.recentlyAdded)} sub="Last 30 days" accent="#7c3aed" iconBg="#f5f3ff" />
-                <KpiCard icon={<ShieldAlert size={18} />} label="Warranty Expiring" value={num(assets?.warrantyExpiring60)} sub="Within 60 days" accent="#dc2626" iconBg="#fef2f2" />
+                <KpiCard icon={<Cpu size={18} />} label="Recently Added" value={num(assets?.recentlyAdded)} sub="Last 30 days" accent="#ae3ec9" iconBg="#f5f3ff" />
+                <KpiCard icon={<ShieldAlert size={18} />} label="Warranty Expiring" value={num(assets?.warrantyExpiring60)} sub="Within 60 days" accent="#d63939" iconBg="#fef2f2" />
                 <KpiCard icon={<AlertTriangle size={18} />} label="Expiring in 30d" value={num(assets?.warrantyExpiring30)} sub="Critical window" accent="#d97706" iconBg="#fffbeb" />
                 <KpiCard icon={<Activity size={18} />} label="Total Asset Value" value={formatDisplayAmount(num(global?.totalAssetValue))} accent="#0891b2" iconBg="#ecfeff" />
             </div>
@@ -458,10 +458,10 @@ const AnalyticsDashboard: React.FC = () => {
     const renderLicenses = () => (
         <div className="analytics-panel">
             <div className="analytics-kpi-grid">
-                <KpiCard icon={<Key size={18} />} label="Total Licenses" value={num(licenses?.total)} accent="#7c3aed" iconBg="#f5f3ff" />
+                <KpiCard icon={<Key size={18} />} label="Total Licenses" value={num(licenses?.total)} accent="#ae3ec9" iconBg="#f5f3ff" />
                 <KpiCard icon={<CheckCircle size={18} />} label="Seats Assigned" value={num(licenses?.assigned)} sub="In use" accent="#059669" iconBg="#ecfdf5" />
-                <KpiCard icon={<Package size={18} />} label="Seats Available" value={num(licenses?.available)} sub="Free to assign" accent="#2563eb" iconBg="#eff6ff" />
-                <KpiCard icon={<TrendingDown size={18} />} label="Expired" value={num(licenses?.expired)} sub="Need renewal" accent="#dc2626" iconBg="#fef2f2" />
+                <KpiCard icon={<Package size={18} />} label="Seats Available" value={num(licenses?.available)} sub="Free to assign" accent="#066fd1" iconBg="#eff6ff" />
+                <KpiCard icon={<TrendingDown size={18} />} label="Expired" value={num(licenses?.expired)} sub="Need renewal" accent="#d63939" iconBg="#fef2f2" />
                 <KpiCard icon={<AlertTriangle size={18} />} label="Expiring Soon" value={num(licenses?.expiringSoon)} sub="Within 30 days" accent="#d97706" iconBg="#fffbeb" />
                 <KpiCard icon={<Activity size={18} />} label="Compliance" value={`${num(licenses?.compliancePercentage)}%`} sub="Seat utilization" accent="#0891b2" iconBg="#ecfeff" />
             </div>
@@ -484,10 +484,10 @@ const AnalyticsDashboard: React.FC = () => {
                     <CardContent className="p-5">
                         <SectionHead title="Seat Overview" />
                         <div className="py-2">
-                            <ProgressRow label="Used Seats" value={num(licenses?.assigned)} total={num(licenses?.assigned) + num(licenses?.available)} color="#2563eb" />
-                            <ProgressRow label="Available Seats" value={num(licenses?.available)} total={num(licenses?.assigned) + num(licenses?.available)} color="#16a34a" />
-                            <ProgressRow label="Expired Licenses" value={num(licenses?.expired)} total={num(licenses?.total)} color="#dc2626" />
-                            <ProgressRow label="Expiring in 30d" value={num(licenses?.expiringSoon)} total={num(licenses?.total)} color="#f59e0b" />
+                            <ProgressRow label="Used Seats" value={num(licenses?.assigned)} total={num(licenses?.assigned) + num(licenses?.available)} color="#066fd1" />
+                            <ProgressRow label="Available Seats" value={num(licenses?.available)} total={num(licenses?.assigned) + num(licenses?.available)} color="#2fb344" />
+                            <ProgressRow label="Expired Licenses" value={num(licenses?.expired)} total={num(licenses?.total)} color="#d63939" />
+                            <ProgressRow label="Expiring in 30d" value={num(licenses?.expiringSoon)} total={num(licenses?.total)} color="#f59f00" />
                         </div>
                         <div className="license-compliance-badge">
                             <span className="compliance-label">Compliance Score</span>
@@ -507,11 +507,11 @@ const AnalyticsDashboard: React.FC = () => {
         return (
             <div className="analytics-panel">
                 <div className="analytics-kpi-grid">
-                    <KpiCard icon={<Layers size={18} />} label="Total Stock Units" value={num(inventory?.totalStockUnits)} accent="#2563eb" iconBg="#eff6ff" />
+                    <KpiCard icon={<Layers size={18} />} label="Total Stock Units" value={num(inventory?.totalStockUnits)} accent="#066fd1" iconBg="#eff6ff" />
                     <KpiCard icon={<CheckCircle size={18} />} label="Available Units" value={num(inventory?.availableUnits)} sub="Ready to issue" accent="#059669" iconBg="#ecfdf5" />
                     <KpiCard icon={<AlertTriangle size={18} />} label="Low Stock Alerts" value={num(inventory?.lowStockAlerts)} sub="Below reorder point" accent="#d97706" iconBg="#fffbeb" />
-                    <KpiCard icon={<XCircle size={18} />} label="Out of Stock" value={num(inventory?.outOfStock)} sub="Zero available" accent="#dc2626" iconBg="#fef2f2" />
-                    <KpiCard icon={<RotateCcw size={18} />} label="Refundable Items" value={refundable} accent="#7c3aed" iconBg="#f5f3ff" />
+                    <KpiCard icon={<XCircle size={18} />} label="Out of Stock" value={num(inventory?.outOfStock)} sub="Zero available" accent="#d63939" iconBg="#fef2f2" />
+                    <KpiCard icon={<RotateCcw size={18} />} label="Refundable Items" value={refundable} accent="#ae3ec9" iconBg="#f5f3ff" />
                     <KpiCard icon={<Package size={18} />} label="Non-Refundable" value={nonRefundable} accent="#0891b2" iconBg="#ecfeff" />
                 </div>
                 <div className="analytics-charts-row">
@@ -528,10 +528,10 @@ const AnalyticsDashboard: React.FC = () => {
                         <CardContent className="p-5">
                             <SectionHead title="Stock Health Overview" />
                             <div className="py-3">
-                                <ProgressRow label="Total Stock" value={num(inventory?.totalStockUnits)} total={num(inventory?.totalStockUnits)} color="#2563eb" />
-                                <ProgressRow label="Available" value={num(inventory?.availableUnits)} total={num(inventory?.totalStockUnits)} color="#16a34a" />
-                                <ProgressRow label="Low Stock Items" value={num(inventory?.lowStockAlerts)} total={num(inventory?.totalStockUnits)} color="#f59e0b" />
-                                <ProgressRow label="Out of Stock Items" value={num(inventory?.outOfStock)} total={num(inventory?.totalStockUnits)} color="#dc2626" />
+                                <ProgressRow label="Total Stock" value={num(inventory?.totalStockUnits)} total={num(inventory?.totalStockUnits)} color="#066fd1" />
+                                <ProgressRow label="Available" value={num(inventory?.availableUnits)} total={num(inventory?.totalStockUnits)} color="#2fb344" />
+                                <ProgressRow label="Low Stock Items" value={num(inventory?.lowStockAlerts)} total={num(inventory?.totalStockUnits)} color="#f59f00" />
+                                <ProgressRow label="Out of Stock Items" value={num(inventory?.outOfStock)} total={num(inventory?.totalStockUnits)} color="#d63939" />
                             </div>
                             <div className="analytics-charts-row mt-4">
                                 <Card className="col-5">
@@ -555,10 +555,10 @@ const AnalyticsDashboard: React.FC = () => {
     const renderUsers = () => (
         <div className="analytics-panel">
             <div className="analytics-kpi-grid-4">
-                <KpiCard icon={<Users size={18} />} label="Total Users" value={num(users?.totalUsers)} accent="#2563eb" iconBg="#eff6ff" />
+                <KpiCard icon={<Users size={18} />} label="Total Users" value={num(users?.totalUsers)} accent="#066fd1" iconBg="#eff6ff" />
                 <KpiCard icon={<CheckCircle size={18} />} label="Active Users" value={num(users?.activeUsers)} sub={`${pct(num(users?.activeUsers), num(users?.totalUsers))}% active rate`} accent="#059669" iconBg="#ecfdf5" />
-                <KpiCard icon={<AlertCircle size={18} />} label="Inactive Users" value={num(users?.totalUsers) - num(users?.activeUsers)} accent="#dc2626" iconBg="#fef2f2" />
-                <KpiCard icon={<Activity size={18} />} label="Active Assignments" value={num(global?.activeAssignments)} sub="Items on loan" accent="#7c3aed" iconBg="#f5f3ff" />
+                <KpiCard icon={<AlertCircle size={18} />} label="Inactive Users" value={num(users?.totalUsers) - num(users?.activeUsers)} accent="#d63939" iconBg="#fef2f2" />
+                <KpiCard icon={<Activity size={18} />} label="Active Assignments" value={num(global?.activeAssignments)} sub="Items on loan" accent="#ae3ec9" iconBg="#f5f3ff" />
             </div>
             <div className="analytics-charts-row">
                 <Card className="col-5">
@@ -568,7 +568,7 @@ const AnalyticsDashboard: React.FC = () => {
                             options={{
                                 chart: { type: 'donut', ...chartFont, toolbar: { show: false } },
                                 labels: ['Active Users', 'Inactive Users'],
-                                colors: ['#16a34a', '#e5e7eb'],
+                                colors: ['#2fb344', '#e5e7eb'],
                                 stroke: { show: false },
                                 dataLabels: { enabled: false },
                                 plotOptions: {
@@ -629,10 +629,10 @@ const AnalyticsDashboard: React.FC = () => {
             <div className="analytics-panel">
                 <div className="analytics-kpi-grid">
                     <KpiCard icon={<ShieldAlert size={18} />} label="Warranty Expiring" value={num(alerts?.warrantyExpiring)} sub="Within 60 days" accent="#d97706" iconBg="#fffbeb" />
-                    <KpiCard icon={<ShieldAlert size={18} />} label="Warranty Expiring" value={num(alerts?.warrantyExpiring30)} sub="Within 30 days — Critical" accent="#dc2626" iconBg="#fef2f2" />
-                    <KpiCard icon={<Package size={18} />} label="Low Stock Items" value={num(alerts?.lowStockItems)} sub="Below min level" accent="#f59e0b" iconBg="#fffbeb" />
-                    <KpiCard icon={<Key size={18} />} label="Expired Licenses" value={num(alerts?.expiredLicenses)} sub="Need renewal" accent="#dc2626" iconBg="#fef2f2" />
-                    <KpiCard icon={<Clock size={18} />} label="Overdue Returns" value={num(alerts?.overdueReturns)} sub="Past due date" accent="#7c3aed" iconBg="#f5f3ff" />
+                    <KpiCard icon={<ShieldAlert size={18} />} label="Warranty Expiring" value={num(alerts?.warrantyExpiring30)} sub="Within 30 days — Critical" accent="#d63939" iconBg="#fef2f2" />
+                    <KpiCard icon={<Package size={18} />} label="Low Stock Items" value={num(alerts?.lowStockItems)} sub="Below min level" accent="#f59f00" iconBg="#fffbeb" />
+                    <KpiCard icon={<Key size={18} />} label="Expired Licenses" value={num(alerts?.expiredLicenses)} sub="Need renewal" accent="#d63939" iconBg="#fef2f2" />
+                    <KpiCard icon={<Clock size={18} />} label="Overdue Returns" value={num(alerts?.overdueReturns)} sub="Past due date" accent="#ae3ec9" iconBg="#f5f3ff" />
                     <KpiCard icon={<Server size={18} />} label="Unassigned Assets" value={num(alerts?.assetsUnassigned)} sub="Available but idle" accent="#0891b2" iconBg="#ecfeff" />
                 </div>
 
@@ -795,7 +795,7 @@ const CSS = `
     border-radius: 6px; padding: 3px 7px;
 }
 .trend-up { background: #ecfdf5; color: #059669; }
-.trend-down { background: #fef2f2; color: #dc2626; }
+.trend-down { background: #fef2f2; color: #d63939; }
 .analytics-kpi-value {
     font-size: 26px; font-weight: 800;
     font-variant-numeric: tabular-nums; line-height: 1.1;
@@ -821,11 +821,11 @@ const CSS = `
 .analytics-section-note  { font-size: 11px; }
 .analytics-live-dot {
     display: flex; align-items: center; gap: 5px;
-    font-size: 11px; font-weight: 600; color: #16a34a;
+    font-size: 11px; font-weight: 600; color: #2fb344;
 }
 .analytics-live-dot span {
     width: 7px; height: 7px; border-radius: 50%;
-    background: #16a34a; display: inline-block;
+    background: #2fb344; display: inline-block;
     animation: pulse 1.5s infinite;
 }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
@@ -866,9 +866,9 @@ const CSS = `
     width: 34px; height: 34px; border-radius: 9px;
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
-.activity-icon.create { background: #ecfdf5; color: #16a34a; }
-.activity-icon.delete { background: #fef2f2; color: #dc2626; }
-.activity-icon.update { background: #eff6ff; color: #2563eb; }
+.activity-icon.create { background: #ecfdf5; color: #2fb344; }
+.activity-icon.delete { background: #fef2f2; color: #d63939; }
+.activity-icon.update { background: #eff6ff; color: #066fd1; }
 .activity-body { flex: 1; min-width: 0; }
 .activity-action { font-size: 13px; font-weight: 600; margin: 0; }
 .activity-entity { font-size: 11px; margin: 2px 0 0; }
@@ -899,8 +899,8 @@ const CSS = `
     font-size: 22px; font-weight: 800;
     font-variant-numeric: tabular-nums;
 }
-.compliance-score.good { color: #16a34a; }
-.compliance-score.warn { color: #dc2626; }
+.compliance-score.good { color: #2fb344; }
+.compliance-score.warn { color: #d63939; }
 
 /* Alerts */
 .alerts-list { display: flex; flex-direction: column; gap: 10px; }
@@ -926,14 +926,14 @@ const CSS = `
 .ui-label { font-size: 12px; font-weight: 600; color: #64748b; }
 .ui-value { font-size: 16px; font-weight: 700; color: #0f172a; }
 .dept-chip {
-    display: inline-block; background: #eff6ff; color: #2563eb;
+    display: inline-block; background: #eff6ff; color: #066fd1;
     border-radius: 8px; padding: 4px 12px; font-size: 13px;
 }
 .ui-progress-wrap {
     display: flex; align-items: center; gap: 10px;
 }
 .ui-progress-bar {
-    flex: 1; height: 10px; background: #2563eb; border-radius: 99px;
+    flex: 1; height: 10px; background: #066fd1; border-radius: 99px;
     transition: width .5s;
     max-width: calc(100% - 48px);
 }

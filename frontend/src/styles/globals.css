@@ -3,67 +3,71 @@
 @tailwind utilities;
 
 @layer base {
+  /* Tabler design language (https://github.com/tabler/tabler) mapped onto
+     shadcn-style tokens. Source values from Tabler core/scss/_variables.scss:
+     primary #066fd1, success #2fb344, danger #d63939, warning #f59f00,
+     body #f9fafb, text #1f2937, muted #6b7280, border #e5e7eb, radius 6px. */
   :root {
-    --background: 210 40% 98.4%;
-    --foreground: 224 71.4% 4.1%;
+    --background: 210 20% 98%;
+    --foreground: 215 28% 17%;
     --card: 0 0% 100%;
-    --card-foreground: 224 71.4% 4.1%;
+    --card-foreground: 215 28% 17%;
     --popover: 0 0% 100%;
-    --popover-foreground: 224 71.4% 4.1%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --success: 142.1 70.6% 45.3%;
-    --success-foreground: 210 40% 98%;
-    --warning: 38 92% 50%;
+    --popover-foreground: 215 28% 17%;
+    --primary: 209 94% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 217 19% 27%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 220 14% 96%;
+    --accent-foreground: 217 19% 27%;
+    --destructive: 0 66% 53%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 130 58% 44%;
+    --success-foreground: 0 0% 100%;
+    --warning: 39 100% 48%;
     --warning-foreground: 26 83% 14%;
-    --border: 214.3 32% 91%;
-    --input: 214.3 32% 91%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.75rem;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 209 94% 42%;
+    --radius: 0.5rem;
     --sidebar: 0 0% 100%;
-    --sidebar-foreground: 224 71.4% 4.1%;
-    --sidebar-accent: 210 40% 96.1%;
-    --sidebar-accent-foreground: 222.2 47.4% 11.2%;
-    --sidebar-border: 214.3 32% 91%;
+    --sidebar-foreground: 215 28% 17%;
+    --sidebar-accent: 220 14% 96%;
+    --sidebar-accent-foreground: 217 19% 27%;
+    --sidebar-border: 220 13% 91%;
   }
 
   .dark {
-    --background: 224 71.4% 4.1%;
-    --foreground: 210 20% 98%;
-    --card: 224 71.4% 4.1%;
-    --card-foreground: 210 20% 98%;
-    --popover: 224 71.4% 4.1%;
-    --popover-foreground: 210 20% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 210 10% 20%;
-    --secondary-foreground: 210 20% 98%;
-    --muted: 210 10% 20%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 210 10% 20%;
-    --accent-foreground: 210 20% 98%;
-    --destructive: 0 62.8% 30.6%;
+    --background: 222 47% 9%;
+    --foreground: 220 13% 91%;
+    --card: 215 28% 14%;
+    --card-foreground: 220 13% 91%;
+    --popover: 215 28% 14%;
+    --popover-foreground: 220 13% 91%;
+    --primary: 209 94% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217 19% 22%;
+    --secondary-foreground: 220 13% 91%;
+    --muted: 217 19% 22%;
+    --muted-foreground: 218 11% 65%;
+    --accent: 217 19% 22%;
+    --accent-foreground: 220 13% 91%;
+    --destructive: 0 66% 47%;
     --destructive-foreground: 0 0% 100%;
-    --success: 142.1 70.6% 45.3%;
-    --success-foreground: 144 61% 10%;
-    --warning: 38 92% 50%;
+    --success: 130 58% 40%;
+    --success-foreground: 0 0% 100%;
+    --warning: 39 100% 48%;
     --warning-foreground: 26 83% 14%;
-    --border: 210 10% 30%;
-    --input: 210 10% 30%;
-    --ring: 217.2 91.2% 59.8%;
-    --sidebar: 224 71.4% 4.1%;
-    --sidebar-foreground: 210 20% 98%;
-    --sidebar-accent: 210 10% 20%;
-    --sidebar-accent-foreground: 210 20% 98%;
-    --sidebar-border: 210 10% 30%;
+    --border: 217 19% 24%;
+    --input: 217 19% 24%;
+    --ring: 209 94% 50%;
+    --sidebar: 215 28% 12%;
+    --sidebar-foreground: 220 13% 91%;
+    --sidebar-accent: 217 19% 22%;
+    --sidebar-accent-foreground: 220 13% 91%;
+    --sidebar-border: 217 19% 24%;
   }
 }
 
@@ -82,6 +86,7 @@
     line-height: 1.5;
   }
 
+  /* Tabler headings use 600 weight rather than heavy bold */
   h1,
   h2,
   h3,
@@ -89,7 +94,7 @@
   h5,
   h6 {
     font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: -0.01em;
     line-height: 1.25;
   }
