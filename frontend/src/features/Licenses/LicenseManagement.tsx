@@ -695,9 +695,20 @@ const LicenseManagement: React.FC = () => {
                             <Input type="date" value={renewData.newExpiryDate} onChange={e => setRenewData({ ...renewData, newExpiryDate: e.target.value })} />
                         </div>
                         <div className="space-y-2">
-                            <Label>Cost Change (+/-)</Label>
+                            <Label>Total Cost Change — entire license, not per seat (+/-)</Label>
                             <Input type="number" step="0.01" value={renewData.costChange} onChange={e => setRenewData({ ...renewData, costChange: parseFloat(e.target.value) || 0 })} />
-                            <p className="text-xs text-muted-foreground">Enter difference in cost from previous term (e.g. +100 or -50).</p>
+                            <p className="text-xs text-muted-foreground">
+                                Difference in the <strong>overall cost of the new term</strong> vs the previous term, covering all {selectedLicense?.totalSeats || 1} seat(s).
+                                Enter 0 if the price is unchanged, +100 if the whole renewal costs 100 more, -50 if cheaper.
+                            </p>
+                            {selectedLicense && (
+                                <p className="text-xs text-muted-foreground">
+                                    Current total cost: <strong>{formatCost(selectedLicense.totalCost || (selectedLicense.unitPrice || 0) * (selectedLicense.totalSeats || 1), selectedLicense.currency)}</strong>
+                                    {renewData.costChange !== 0 && (
+                                        <> → new term: <strong>{formatCost((Number(selectedLicense.totalCost) || (selectedLicense.unitPrice || 0) * (selectedLicense.totalSeats || 1)) + renewData.costChange, selectedLicense.currency)}</strong></>
+                                    )}
+                                </p>
+                            )}
                         </div>
                         <div className="space-y-2">
                             <Label>Remarks</Label>

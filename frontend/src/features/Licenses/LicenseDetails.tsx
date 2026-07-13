@@ -197,7 +197,7 @@ const LicenseDetails: React.FC<LicenseDetailsProps> = ({
                                     <TableHead>Renewed Date</TableHead>
                                     <TableHead>Old Expiry</TableHead>
                                     <TableHead>New Expiry</TableHead>
-                                    <TableHead>Cost Change</TableHead>
+                                    <TableHead>Total Cost Change</TableHead>
                                     <TableHead>Remarks</TableHead>
                                 </TableRow>
                             </TableHeader>
