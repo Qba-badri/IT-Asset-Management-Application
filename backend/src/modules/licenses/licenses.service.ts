@@ -219,14 +219,15 @@ export class LicensesService {
     });
     await this.renewalRepository.save(renewal);
 
-    // Update license
-    license.expiryDate = dto.newExpiryDate;
-    // Update next renewal date to match new expiry
-    license.nextRenewalDate = dto.newExpiryDate;
-
-    await this.licenseRepository.save(license);
+    // Update only the changed columns. Saving the relation-loaded entity makes
+    // TypeORM diff license.renewals (which lacks the renewal saved above) and
+    // try to null its license_id, violating the not-null constraint.
+    await this.licenseRepository.update(id, {
+      expiryDate: dto.newExpiryDate,
+      nextRenewalDate: dto.newExpiryDate,
+    });
     await this.logHistory(id, LicenseAction.RENEWED, userId, undefined, dto.remarks);
-    return license;
+    return this.findOne(id);
   }
 
   async adjustSeats(id: number, dto: AdjustSeatsDto, userId?: number): Promise<License> {
