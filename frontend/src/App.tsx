@@ -27,6 +27,7 @@ import IssueReturnPage from './features/IssueReturn/IssueReturnPage';
 import HoldingsPage from './features/Holdings/HoldingsPage';
 import OverduePage from './features/Overdue/OverduePage';
 import AuditPage from './features/Audit/AuditPage';
+import AuditReportPage from './features/Audit/AuditReportPage';
 import ReportsPage from './features/Reports/ReportsPage';
 import UserProfile from './features/UserManagement/UserProfile';
 import UserSettings from './features/UserManagement/UserSettings';
@@ -77,6 +78,7 @@ function App() {
                 <Route path="employees/:id/holdings" element={<HoldingsPage />} />
                 <Route path="overdue" element={<OverduePage />} />
                 <Route path="audit" element={<AuditPage />} />
+                <Route path="audit-report" element={<AuditReportPage />} />
                 <Route path="reports" element={<ReportsPage />} />
               </Route>
 

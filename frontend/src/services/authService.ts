@@ -5,7 +5,14 @@ interface LoginResponse {
   user: {
     id: string;
     email: string;
-    name: string;
+    firstName: string;
+    lastName: string;
+    role: {
+      id: number;
+      name: string;
+    } | null;
+    /** Permission slugs from the user's role — mirrors backend PermissionsGuard */
+    permissions: string[];
   };
 }
 
@@ -89,6 +96,7 @@ class AuthService {
 
   async logout(): Promise<void> {
     localStorage.removeItem('token');
+    localStorage.removeItem('user');
   }
 
   getToken(): string | null {

@@ -34,6 +34,12 @@ export class InventoryPurchase {
     @Column({ type: 'int' })
     quantity: number;
 
+    @Column({ name: 'pack_quantity', type: 'int', nullable: true })
+    packQuantity: number | null;
+
+    @Column({ name: 'units_per_pack', type: 'int', default: 1 })
+    unitsPerPack: number;
+
     @Column({ name: 'unit_cost', type: 'decimal', precision: 12, scale: 2 })
     unitCost: number;
 

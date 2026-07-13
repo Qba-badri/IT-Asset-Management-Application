@@ -1,13 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Package, RotateCcw, ArrowLeftRight, Search, AlertCircle, CheckCircle2,
-  Calendar, User, MapPin, Hash, Tag, ChevronDown
+  Package, RotateCcw, Search, AlertCircle,
+  Calendar, User, MapPin, Hash, Tag
 } from 'lucide-react';
 import { catalogService, CatalogItem, ReturnPolicy, TrackMode } from '../../services/catalogService';
 import { assetUnitsService, AssetUnit } from '../../services/assetUnitsService';
 import { assignmentsService, Assignment, IssueInput, ReturnInput } from '../../services/assignmentsService';
 import { locationsService, Location } from '../../services/lookupService';
 import { useToast } from '../../context/ToastContext';
+import { PageHeader } from '../../components/shared/PageHeader';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent } from '../../components/ui/card';
+import { Input } from '../../components/ui/input';
+import { Textarea } from '../../components/ui/textarea';
+import { Label } from '../../components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 
 type Mode = 'issue' | 'return';
 
@@ -194,226 +201,224 @@ const IssueReturnPage: React.FC = () => {
   };
 
   const trackBadge = (track: TrackMode) => (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${track === 'serialized' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${track === 'serialized' ? 'bg-green-100 text-green-800' : 'bg-muted text-foreground'
       }`}>
       {track === 'serialized' ? 'Serialized' : 'Bulk Qty'}
     </span>
   );
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="space-y-6">
+      <PageHeader title="Issue / Return" />
+
       {/* ─── Mode Toggle ──────────────────────────────────── */}
-      <div className="flex items-center gap-2 mb-6">
-        <button
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          variant={mode === 'issue' ? 'default' : 'outline'}
           onClick={() => setMode('issue')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${mode === 'issue'
-            ? 'bg-blue-600 text-white shadow-sm'
-            : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-            }`}
         >
-          <Package className="w-4 h-4" /> Issue
-        </button>
-        <button
+          <Package className="w-4 h-4 mr-2" /> Issue
+        </Button>
+        <Button
+          type="button"
+          variant={mode === 'return' ? 'success' : 'outline'}
           onClick={() => setMode('return')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${mode === 'return'
-            ? 'bg-green-600 text-white shadow-sm'
-            : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-            }`}
         >
-          <RotateCcw className="w-4 h-4" /> Return
-        </button>
+          <RotateCcw className="w-4 h-4 mr-2" /> Return
+        </Button>
       </div>
 
       {/* ════════════════ ISSUE MODE ══════════════════════════ */}
       {mode === 'issue' && (
         <form onSubmit={handleIssue} className="space-y-6">
           {/* Step 1: Select Catalog Item */}
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">1. Select Item</h3>
-            <div className="relative mb-3">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search catalog by name or SKU..."
-                value={catalogSearch}
-                onChange={(e) => setCatalogSearch(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-            {catalogSearch && (
-              <div className="max-h-48 overflow-y-auto border rounded-lg divide-y">
-                {filteredCatalog.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedCatalog(item);
-                      setCatalogSearch('');
-                      setIssueForm((f) => ({ ...f, catalogItemId: item.id }));
-                    }}
-                    className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center justify-between"
-                  >
-                    <div>
-                      <span className="font-medium text-sm">{item.name}</span>
-                      <span className="text-xs text-gray-500 ml-2">{item.sku}</span>
-                    </div>
-                    <div className="flex gap-2">
-                      {policyBadge(item.returnPolicy)}
-                      {trackBadge(item.trackMode)}
-                    </div>
-                  </button>
-                ))}
+          <Card>
+            <CardContent className="p-4">
+              <h3 className="text-sm font-semibold text-foreground mb-3">1. Select Item</h3>
+              <div className="relative mb-3">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Search catalog by name or SKU..."
+                  value={catalogSearch}
+                  onChange={(e) => setCatalogSearch(e.target.value)}
+                  className="pl-10"
+                />
               </div>
-            )}
+              {catalogSearch && (
+                <div className="max-h-48 overflow-y-auto border rounded-lg divide-y">
+                  {filteredCatalog.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedCatalog(item);
+                        setCatalogSearch('');
+                        setIssueForm((f) => ({ ...f, catalogItemId: item.id }));
+                      }}
+                      className="w-full text-left px-4 py-2 hover:bg-accent flex items-center justify-between"
+                    >
+                      <div>
+                        <span className="font-medium text-sm">{item.name}</span>
+                        <span className="text-xs text-muted-foreground ml-2">{item.sku}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        {policyBadge(item.returnPolicy)}
+                        {trackBadge(item.trackMode)}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
 
-            {selectedCatalog && (
-              <div className="mt-3 p-3 bg-blue-50 rounded-lg flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-sm">{selectedCatalog.name}</p>
-                  <p className="text-xs text-gray-600">
-                    SKU: {selectedCatalog.sku} • {selectedCatalog.brand} {selectedCatalog.model}
-                  </p>
+              {selectedCatalog && (
+                <div className="mt-3 p-3 bg-blue-50 rounded-lg flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-sm">{selectedCatalog.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      SKU: {selectedCatalog.sku} • {selectedCatalog.brand} {selectedCatalog.model}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    {policyBadge(selectedCatalog.returnPolicy)}
+                    {trackBadge(selectedCatalog.trackMode)}
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  {policyBadge(selectedCatalog.returnPolicy)}
-                  {trackBadge(selectedCatalog.trackMode)}
-                </div>
-              </div>
-            )}
-          </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Step 2: Dynamic Fields Based on Classification */}
           {selectedCatalog && (
-            <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-4">
-              <h3 className="text-sm font-semibold text-gray-700">2. Assignment Details</h3>
+            <Card>
+              <CardContent className="p-4 space-y-4">
+                <h3 className="text-sm font-semibold text-foreground">2. Assignment Details</h3>
 
-              {/* Policy-specific warnings */}
-              {selectedCatalog.returnPolicy === 'consumable' && (
-                <div className="flex items-center gap-2 text-sm text-orange-700 bg-orange-50 p-3 rounded-lg">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                  Consumable — stock will be deducted permanently. No return expected.
-                </div>
-              )}
-              {selectedCatalog.returnPolicy === 'assign_once' && (
-                <div className="flex items-center gap-2 text-sm text-purple-700 bg-purple-50 p-3 rounded-lg">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                  Permanent assignment — this item will not be returned.
-                </div>
-              )}
-
-              {/* Serialized: Asset Unit Picker */}
-              {selectedCatalog.trackMode === 'serialized' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    <Tag className="w-4 h-4 inline mr-1" /> Select Asset Unit
-                  </label>
-                  <select
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                    value={selectedUnit?.id || ''}
-                    onChange={(e) => {
-                      const unit = availableUnits.find((u) => u.id === Number(e.target.value));
-                      setSelectedUnit(unit || null);
-                    }}
-                    required
-                  >
-                    <option value="">— Select available unit —</option>
-                    {availableUnits.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.assetTag} {u.serialNumber ? `(S/N: ${u.serialNumber})` : ''} — {u.condition}
-                      </option>
-                    ))}
-                  </select>
-                  {availableUnits.length === 0 && (
-                    <p className="text-xs text-red-500 mt-1">No units available in stock</p>
-                  )}
-                </div>
-              )}
-
-              {/* BulkQty: Quantity + Location */}
-              {selectedCatalog.trackMode === 'bulk_qty' && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      <Hash className="w-4 h-4 inline mr-1" /> Quantity
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      value={issueForm.quantity || ''}
-                      onChange={(e) => setIssueForm((f) => ({ ...f, quantity: Number(e.target.value) }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                      required
-                    />
+                {/* Policy-specific warnings */}
+                {selectedCatalog.returnPolicy === 'consumable' && (
+                  <div className="flex items-center gap-2 text-sm text-orange-700 bg-orange-50 p-3 rounded-lg">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    Consumable — stock will be deducted permanently. No return expected.
                   </div>
+                )}
+                {selectedCatalog.returnPolicy === 'assign_once' && (
+                  <div className="flex items-center gap-2 text-sm text-purple-700 bg-purple-50 p-3 rounded-lg">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    Permanent assignment — this item will not be returned.
+                  </div>
+                )}
+
+                {/* Serialized: Asset Unit Picker */}
+                {selectedCatalog.trackMode === 'serialized' && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      <MapPin className="w-4 h-4 inline mr-1" /> Issue From Location
-                    </label>
-                    <select
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                      value={issueForm.locationId || ''}
-                      onChange={(e) => setIssueForm((f) => ({ ...f, locationId: Number(e.target.value) }))}
-                      required
+                    <Label className="mb-1 flex items-center">
+                      <Tag className="w-4 h-4 inline mr-1" /> Select Asset Unit
+                    </Label>
+                    <Select
+                      value={selectedUnit ? String(selectedUnit.id) : ''}
+                      onValueChange={(value) => {
+                        const unit = availableUnits.find((u) => u.id === Number(value));
+                        setSelectedUnit(unit || null);
+                      }}
                     >
-                      <option value="">— Select location —</option>
-                      {locations.map((l) => (
-                        <option key={l.id} value={l.id}>{l.name}</option>
-                      ))}
-                    </select>
+                      <SelectTrigger>
+                        <SelectValue placeholder="— Select available unit —" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableUnits.map((u) => (
+                          <SelectItem key={u.id} value={String(u.id)}>
+                            {u.assetTag} {u.serialNumber ? `(S/N: ${u.serialNumber})` : ''} — {u.condition}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {availableUnits.length === 0 && (
+                      <p className="text-xs text-red-500 mt-1">No units available in stock</p>
+                    )}
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Assignee */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  <User className="w-4 h-4 inline mr-1" /> Assign To (Employee ID)
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  value={issueForm.assigneeId || ''}
-                  onChange={(e) => setIssueForm((f) => ({ ...f, assigneeId: Number(e.target.value) }))}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                  placeholder="Employee ID"
-                  required
-                />
-              </div>
+                {/* BulkQty: Quantity + Location */}
+                {selectedCatalog.trackMode === 'bulk_qty' && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label className="mb-1 flex items-center">
+                        <Hash className="w-4 h-4 inline mr-1" /> Quantity
+                      </Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={issueForm.quantity || ''}
+                        onChange={(e) => setIssueForm((f) => ({ ...f, quantity: Number(e.target.value) }))}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label className="mb-1 flex items-center">
+                        <MapPin className="w-4 h-4 inline mr-1" /> Issue From Location
+                      </Label>
+                      <Select
+                        value={issueForm.locationId ? String(issueForm.locationId) : ''}
+                        onValueChange={(value) => setIssueForm((f) => ({ ...f, locationId: Number(value) }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="— Select location —" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {locations.map((l) => (
+                            <SelectItem key={l.id} value={String(l.id)}>{l.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
 
-              {/* Due Date — only for Returnable */}
-              {selectedCatalog.returnPolicy === 'returnable' && (
+                {/* Assignee */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    <Calendar className="w-4 h-4 inline mr-1" /> Due Date
-                  </label>
-                  <input
-                    type="date"
-                    value={issueForm.dueDate || ''}
-                    onChange={(e) => setIssueForm((f) => ({ ...f, dueDate: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  <Label className="mb-1 flex items-center">
+                    <User className="w-4 h-4 inline mr-1" /> Assign To (Employee ID)
+                  </Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={issueForm.assigneeId || ''}
+                    onChange={(e) => setIssueForm((f) => ({ ...f, assigneeId: Number(e.target.value) }))}
+                    placeholder="Employee ID"
+                    required
                   />
                 </div>
-              )}
 
-              {/* Notes */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-                <textarea
-                  value={issueForm.notes || ''}
-                  onChange={(e) => setIssueForm((f) => ({ ...f, notes: e.target.value }))}
-                  rows={2}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
+                {/* Due Date — only for Returnable */}
+                {selectedCatalog.returnPolicy === 'returnable' && (
+                  <div>
+                    <Label className="mb-1 flex items-center">
+                      <Calendar className="w-4 h-4 inline mr-1" /> Due Date
+                    </Label>
+                    <Input
+                      type="date"
+                      value={issueForm.dueDate || ''}
+                      onChange={(e) => setIssueForm((f) => ({ ...f, dueDate: e.target.value }))}
+                    />
+                  </div>
+                )}
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
-              >
-                {loading ? 'Processing...' : 'Issue Item'}
-              </button>
-            </div>
+                {/* Notes */}
+                <div>
+                  <Label className="mb-1">Notes</Label>
+                  <Textarea
+                    value={issueForm.notes || ''}
+                    onChange={(e) => setIssueForm((f) => ({ ...f, notes: e.target.value }))}
+                    rows={2}
+                  />
+                </div>
+
+                <Button type="submit" disabled={loading} className="w-full">
+                  {loading ? 'Processing...' : 'Issue Item'}
+                </Button>
+              </CardContent>
+            </Card>
           )}
         </form>
       )}
@@ -422,162 +427,166 @@ const IssueReturnPage: React.FC = () => {
       {mode === 'return' && (
         <div className="space-y-6">
           {/* Search Assignments */}
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">Search Active Assignments</h3>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search by employee name, email, or asset tag..."
-                  value={assignmentSearch}
-                  onChange={(e) => setAssignmentSearch(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && searchAssignments()}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500"
-                />
+          <Card>
+            <CardContent className="p-4">
+              <h3 className="text-sm font-semibold text-foreground mb-3">Search Active Assignments</h3>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    type="text"
+                    placeholder="Search by employee name, email, or asset tag..."
+                    value={assignmentSearch}
+                    onChange={(e) => setAssignmentSearch(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && searchAssignments()}
+                    className="pl-10"
+                  />
+                </div>
+                <Button type="button" variant="success" onClick={searchAssignments}>
+                  Search
+                </Button>
               </div>
-              <button
-                type="button"
-                onClick={searchAssignments}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700"
-              >
-                Search
-              </button>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
           {/* Active Assignments List */}
           {activeAssignments.length > 0 && (
-            <div className="bg-white rounded-lg border border-gray-200 divide-y">
-              {activeAssignments.map((a) => {
-                const remaining = a.quantity - a.returnedQuantity;
-                return (
-                  <button
-                    key={a.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedAssignment(a);
-                      setReturnForm({ assignmentId: a.id, quantity: remaining });
-                    }}
-                    className={`w-full text-left px-4 py-3 hover:bg-green-50 transition-colors ${selectedAssignment?.id === a.id ? 'bg-green-50 ring-2 ring-green-500 ring-inset' : ''
-                      }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium text-sm">
-                          {a.catalogItem?.name}
-                          {a.assetUnit && (
-                            <span className="text-gray-500 ml-2">({a.assetUnit.assetTag})</span>
+            <Card>
+              <CardContent className="p-0 divide-y">
+                {activeAssignments.map((a) => {
+                  const remaining = a.quantity - a.returnedQuantity;
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedAssignment(a);
+                        setReturnForm({ assignmentId: a.id, quantity: remaining });
+                      }}
+                      className={`w-full text-left px-4 py-3 hover:bg-accent transition-colors ${selectedAssignment?.id === a.id ? 'bg-accent ring-2 ring-green-500 ring-inset' : ''
+                        }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium text-sm">
+                            {a.catalogItem?.name}
+                            {a.assetUnit && (
+                              <span className="text-muted-foreground ml-2">({a.assetUnit.assetTag})</span>
+                            )}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Assigned to: {a.assignee?.firstName} {a.assignee?.lastName} •
+                            Qty: {remaining}/{a.quantity} remaining •
+                            Issued: {new Date(a.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {a.dueDate && new Date(a.dueDate) < new Date() && (
+                            <span className="text-xs font-medium text-red-600 bg-red-50 px-2 py-0.5 rounded">
+                              OVERDUE
+                            </span>
                           )}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          Assigned to: {a.assignee?.firstName} {a.assignee?.lastName} •
-                          Qty: {remaining}/{a.quantity} remaining •
-                          Issued: {new Date(a.createdAt).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {a.dueDate && new Date(a.dueDate) < new Date() && (
-                          <span className="text-xs font-medium text-red-600 bg-red-50 px-2 py-0.5 rounded">
-                            OVERDUE
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded ${a.status === 'active' ? 'bg-blue-50 text-blue-700' :
+                            a.status === 'partially_returned' ? 'bg-yellow-50 text-yellow-700' :
+                              'bg-muted text-foreground'
+                            }`}>
+                            {a.status}
                           </span>
-                        )}
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded ${a.status === 'active' ? 'bg-blue-50 text-blue-700' :
-                          a.status === 'partially_returned' ? 'bg-yellow-50 text-yellow-700' :
-                            'bg-gray-50 text-gray-700'
-                          }`}>
-                          {a.status}
-                        </span>
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+                    </button>
+                  );
+                })}
+              </CardContent>
+            </Card>
           )}
 
           {/* Return Form */}
           {selectedAssignment && (
-            <form onSubmit={handleReturn} className="bg-white rounded-lg border border-gray-200 p-4 space-y-4">
-              <h3 className="text-sm font-semibold text-gray-700">Process Return</h3>
+            <Card>
+              <form onSubmit={handleReturn}>
+                <CardContent className="p-4 space-y-4">
+                  <h3 className="text-sm font-semibold text-foreground">Process Return</h3>
 
-              <div className="p-3 bg-green-50 rounded-lg text-sm">
-                <p className="font-medium">{selectedAssignment.catalogItem?.name}</p>
-                <p className="text-gray-600">
-                  {selectedAssignment.quantity - selectedAssignment.returnedQuantity} of{' '}
-                  {selectedAssignment.quantity} remaining to return
-                </p>
-              </div>
+                  <div className="p-3 bg-green-50 rounded-lg text-sm">
+                    <p className="font-medium">{selectedAssignment.catalogItem?.name}</p>
+                    <p className="text-muted-foreground">
+                      {selectedAssignment.quantity - selectedAssignment.returnedQuantity} of{' '}
+                      {selectedAssignment.quantity} remaining to return
+                    </p>
+                  </div>
 
-              {/* Quantity (for BulkQty partial returns) */}
-              {selectedAssignment.catalogItem?.trackMode === 'bulk_qty' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Return Quantity
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={selectedAssignment.quantity - selectedAssignment.returnedQuantity}
-                    value={returnForm.quantity || ''}
-                    onChange={(e) => setReturnForm((f) => ({ ...f, quantity: Number(e.target.value) }))}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                    required
-                  />
-                </div>
-              )}
+                  {/* Quantity (for BulkQty partial returns) */}
+                  {selectedAssignment.catalogItem?.trackMode === 'bulk_qty' && (
+                    <div>
+                      <Label className="mb-1">Return Quantity</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={selectedAssignment.quantity - selectedAssignment.returnedQuantity}
+                        value={returnForm.quantity || ''}
+                        onChange={(e) => setReturnForm((f) => ({ ...f, quantity: Number(e.target.value) }))}
+                        required
+                      />
+                    </div>
+                  )}
 
-              {/* Condition */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Condition on Return</label>
-                <select
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                  value={returnForm.condition || 'good'}
-                  onChange={(e) => setReturnForm((f) => ({ ...f, condition: e.target.value as any }))}
-                >
-                  <option value="new">New</option>
-                  <option value="excellent">Excellent</option>
-                  <option value="good">Good</option>
-                  <option value="fair">Fair</option>
-                  <option value="poor">Poor</option>
-                  <option value="damaged">Damaged</option>
-                </select>
-              </div>
+                  {/* Condition */}
+                  <div>
+                    <Label className="mb-1">Condition on Return</Label>
+                    <Select
+                      value={returnForm.condition || 'good'}
+                      onValueChange={(value) => setReturnForm((f) => ({ ...f, condition: value as any }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="new">New</SelectItem>
+                        <SelectItem value="excellent">Excellent</SelectItem>
+                        <SelectItem value="good">Good</SelectItem>
+                        <SelectItem value="fair">Fair</SelectItem>
+                        <SelectItem value="poor">Poor</SelectItem>
+                        <SelectItem value="damaged">Damaged</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-              {/* Return To Location */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Return To Location</label>
-                <select
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                  value={returnForm.returnToLocationId || ''}
-                  onChange={(e) => setReturnForm((f) => ({ ...f, returnToLocationId: Number(e.target.value) }))}
-                >
-                  <option value="">— Same as issue location —</option>
-                  {locations.map((l) => (
-                    <option key={l.id} value={l.id}>{l.name}</option>
-                  ))}
-                </select>
-              </div>
+                  {/* Return To Location */}
+                  <div>
+                    <Label className="mb-1">Return To Location</Label>
+                    <Select
+                      value={returnForm.returnToLocationId ? String(returnForm.returnToLocationId) : 'same'}
+                      onValueChange={(value) => setReturnForm((f) => ({ ...f, returnToLocationId: value === 'same' ? undefined : Number(value) }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="— Same as issue location —" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="same">— Same as issue location —</SelectItem>
+                        {locations.map((l) => (
+                          <SelectItem key={l.id} value={String(l.id)}>{l.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-              {/* Notes */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-                <textarea
-                  value={returnForm.notes || ''}
-                  onChange={(e) => setReturnForm((f) => ({ ...f, notes: e.target.value }))}
-                  rows={2}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
+                  {/* Notes */}
+                  <div>
+                    <Label className="mb-1">Notes</Label>
+                    <Textarea
+                      value={returnForm.notes || ''}
+                      onChange={(e) => setReturnForm((f) => ({ ...f, notes: e.target.value }))}
+                      rows={2}
+                    />
+                  </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-green-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
-              >
-                {loading ? 'Processing...' : 'Process Return'}
-              </button>
-            </form>
+                  <Button type="submit" variant="success" disabled={loading} className="w-full">
+                    {loading ? 'Processing...' : 'Process Return'}
+                  </Button>
+                </CardContent>
+              </form>
+            </Card>
           )}
         </div>
       )}

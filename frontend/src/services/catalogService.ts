@@ -20,6 +20,7 @@ export interface CatalogItem {
   model?: string;
   imageUrl?: string;
   unitCost?: number;
+  currency?: string;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -38,6 +39,7 @@ export interface CreateCatalogItemInput {
   model?: string;
   imageUrl?: string;
   unitCost?: number;
+  currency?: string;
 }
 
 export interface CatalogQuery {

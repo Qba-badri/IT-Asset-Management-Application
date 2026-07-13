@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthService } from './auth.service';
@@ -17,9 +18,13 @@ import { PermissionsGuard } from './guards/permissions.guard';
   imports: [
     TypeOrmModule.forFeature([User, PasswordResetToken, Role]),
     PassportModule,
-    JwtModule.register({
-      secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
-      signOptions: { expiresIn: '24h' },
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      useFactory: async (configService: ConfigService) => ({
+        secret: configService.get<string>('JWT_SECRET') || 'your-secret-key-change-in-production',
+        signOptions: { expiresIn: '24h' },
+      }),
+      inject: [ConfigService],
     }),
     AuditEventsModule,
   ],

@@ -12,7 +12,7 @@ import { assetService, Asset } from '../../services/assetService';
 import { userService, User as UserType } from '../../services/userService';
 import { useToast } from '../../context/ToastContext';
 import { authService } from '../../services/authService';
-import { useCurrency } from '../../context/CurrencyContext';
+import { useCurrency, CURRENCY_OPTIONS } from '../../context/CurrencyContext';
 import ConfirmModal from '../../components/Common/ConfirmModal';
 import ActionDropdown, { ActionItem } from '../../components/Common/ActionDropdown';
 import { PageHeader } from '../../components/shared/PageHeader';
@@ -99,7 +99,7 @@ const AssetManagement: React.FC = () => {
         setValues: setAssetValues
     } = useForm({
         assetTag: '', name: '', category: '', condition: 'new', status: 'available', acquisitionType: 'purchased',
-        brand: '', model: '', serialNumber: '', purchaseDate: '', purchaseCost: '', vendor: '',
+        brand: '', model: '', serialNumber: '', purchaseDate: '', purchaseCost: '', currency: 'INR', vendor: '',
         receivedFromVendorDate: '', vendorMonthlyRent: '', warrantyExpiry: '', usefulLifeYears: '5',
         salvageValue: '', location: '', notes: '',
         hostname: '', poNumber: '', invoiceNumber: '', costCenter: '', businessOwnerId: '',
@@ -265,7 +265,7 @@ const AssetManagement: React.FC = () => {
         setEditMode(false);
         resetAssetForm({
             assetTag: '', name: '', category: '', condition: 'new', status: 'available', acquisitionType: 'purchased',
-            brand: '', model: '', serialNumber: '', purchaseDate: '', purchaseCost: '', vendor: '',
+            brand: '', model: '', serialNumber: '', purchaseDate: '', purchaseCost: '', currency: 'INR', vendor: '',
             receivedFromVendorDate: '', vendorMonthlyRent: '', warrantyExpiry: '', usefulLifeYears: '5',
             salvageValue: '', location: '', notes: '',
             hostname: '', poNumber: '', invoiceNumber: '', costCenter: '', businessOwnerId: '',
@@ -284,6 +284,7 @@ const AssetManagement: React.FC = () => {
             status: asset.status, acquisitionType: asset.acquisitionType || 'purchased',
             brand: asset.brand || '', model: asset.model || '', serialNumber: asset.serialNumber || '',
             purchaseDate: asset.purchaseDate?.split('T')[0] || '', purchaseCost: asset.purchaseCost?.toString() || '',
+            currency: asset.currency || 'INR',
             vendor: asset.vendor || '', receivedFromVendorDate: asset.receivedFromVendorDate?.split('T')[0] || '',
             vendorMonthlyRent: asset.vendorMonthlyRent?.toString() || '',
             warrantyExpiry: asset.warrantyExpiry?.split('T')[0] || '',
@@ -356,6 +357,7 @@ const AssetManagement: React.FC = () => {
                 // Purchase-only fields (clear if rented)
                 purchaseDate: isPurchased ? (assetFormData.purchaseDate || null) : null,
                 purchaseCost: isPurchased ? (assetFormData.purchaseCost ? parseFloat(assetFormData.purchaseCost) : null) : null,
+                currency: assetFormData.currency || 'INR',
                 usefulLifeYears: isPurchased ? (assetFormData.usefulLifeYears ? parseInt(assetFormData.usefulLifeYears) : 3) : 3,
                 salvageValue: isPurchased ? (assetFormData.salvageValue ? parseFloat(assetFormData.salvageValue) : null) : null,
 
@@ -916,8 +918,8 @@ const AssetManagement: React.FC = () => {
                                                     <ImageIcon className="h-3.5 w-3.5" />{assetPhotos[asset.id] || 0}
                                                 </span>
                                             </TableCell>
-                                            <TableCell className="text-sm">{asset.purchaseCost ? formatCost(Number(asset.purchaseCost)) : '-'}</TableCell>
-                                            <TableCell className="text-sm">{asset.vendorMonthlyRent ? formatCost(Number(asset.vendorMonthlyRent)) : '-'}</TableCell>
+                                            <TableCell className="text-sm">{asset.purchaseCost ? formatCost(Number(asset.purchaseCost), asset.currency) : '-'}</TableCell>
+                                            <TableCell className="text-sm">{asset.vendorMonthlyRent ? formatCost(Number(asset.vendorMonthlyRent), asset.currency) : '-'}</TableCell>
                                             <TableCell>
                                                 <div className="flex items-center gap-1">
                                                     <Button variant="ghost" size="icon-sm" onClick={() => handleViewDetails(asset.id)} title="View Details">
@@ -1099,7 +1101,7 @@ const AssetManagement: React.FC = () => {
 
                                 <FormField
                                     id="purchaseCost"
-                                    label={`Purchase Cost (${currencySymbol})`}
+                                    label="Purchase Cost"
                                     error={assetErrors.purchaseCost}
                                     hint="Total acquisition price"
                                 >
@@ -1111,6 +1113,12 @@ const AssetManagement: React.FC = () => {
                                         onBlur={() => handleAssetBlur('purchaseCost')}
                                         placeholder="0.00"
                                     />
+                                </FormField>
+
+                                <FormField id="currency" label="Currency" hint="Currency this asset was purchased in">
+                                    <select id="currency" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={assetFormData.currency} onChange={(e) => handleAssetChange('currency', e.target.value)}>
+                                        {CURRENCY_OPTIONS.map(code => <option key={code} value={code}>{code}</option>)}
+                                    </select>
                                 </FormField>
 
                                 <FormField id="vendor" label="Vendor" hint="The supplier of this asset">

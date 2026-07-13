@@ -50,6 +50,10 @@ export class CreateAssetDto {
 
     @IsString()
     @IsOptional()
+    currency?: string;
+
+    @IsString()
+    @IsOptional()
     vendor?: string;
 
     @IsNumber()

@@ -15,11 +15,13 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { ScrollArea } from '../../components/ui/scroll-area';
 import { Pagination } from '../../components/shared/Pagination';
+import RolePermissionMatrix from './RolePermissionMatrix';
 
 const RoleMaster: React.FC = () => {
     const [roles, setRoles] = useState<Role[]>([]);
     const [permissions, setPermissions] = useState<Permission[]>([]);
     const [loading, setLoading] = useState(true);
+    const [activeTab, setActiveTab] = useState<'list' | 'matrix'>('list');
     const { showToast } = useToast();
 
     const [confirmState, setConfirmState] = useState<{ show: boolean; title: string; message: string; onConfirm: () => void; type?: 'danger' | 'warning' | 'primary' }>({ show: false, title: '', message: '', onConfirm: () => { } });
@@ -83,38 +85,65 @@ const RoleMaster: React.FC = () => {
                 <Button onClick={handleOpenCreate}><Plus className="h-4 w-4 mr-2" />Create New Role</Button>
             </PageHeader>
 
-            <Card>
-                <CardContent className="p-0">
-                    <Table>
-                        <TableHeader><TableRow><TableHead className="w-16">ID</TableHead><TableHead>Role Name</TableHead><TableHead>Description</TableHead><TableHead>Permissions</TableHead><TableHead>Status</TableHead><TableHead className="w-[50px]"></TableHead></TableRow></TableHeader>
-                        <TableBody>
-                            {paginatedRoles.map(role => (
-                                <TableRow key={role.id}>
-                                    <TableCell className="text-muted-foreground">{role.id}</TableCell>
-                                    <TableCell className="font-medium">{role.name}</TableCell>
-                                    <TableCell className="text-sm text-muted-foreground">{role.description}</TableCell>
-                                    <TableCell><div className="flex items-center gap-1.5"><ShieldCheck className="h-4 w-4 text-muted-foreground" /><span className="text-sm">{role.permissions?.length || 0} Permissions</span></div></TableCell>
-                                    <TableCell><Badge variant="success">Active</Badge></TableCell>
-                                    <TableCell>
-                                        <ActionDropdown actions={[
-                                            { label: 'Edit', icon: <Edit className="h-4 w-4" />, onClick: () => handleOpenEdit(role), variant: 'default' },
-                                            { label: 'Delete', icon: <Trash2 className="h-4 w-4" />, onClick: () => handleDelete(role.id), variant: 'danger' },
-                                        ]} />
-                                    </TableCell>
-                                </TableRow>
-                            ))}
-                            {roles.length === 0 && <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No roles found</TableCell></TableRow>}
-                        </TableBody>
-                    </Table>
-                    <Pagination
-                        currentPage={currentPage}
-                        totalPages={Math.ceil(roles.length / itemsPerPage)}
-                        onPageChange={setCurrentPage}
-                        totalItems={roles.length}
-                        pageSize={itemsPerPage}
-                    />
-                </CardContent>
-            </Card>
+            <div className="flex bg-muted/50 p-1 rounded-lg w-fit">
+                <Button 
+                    variant={activeTab === 'list' ? 'default' : 'ghost'} 
+                    size="sm" 
+                    className="w-28"
+                    onClick={() => setActiveTab('list')}
+                >
+                    List View
+                </Button>
+                <Button 
+                    variant={activeTab === 'matrix' ? 'default' : 'ghost'} 
+                    size="sm" 
+                    className="w-28"
+                    onClick={() => setActiveTab('matrix')}
+                >
+                    Matrix View
+                </Button>
+            </div>
+
+            {activeTab === 'list' ? (
+                <Card>
+                    <CardContent className="p-0">
+                        <Table>
+                            <TableHeader><TableRow><TableHead className="w-16">ID</TableHead><TableHead>Role Name</TableHead><TableHead>Description</TableHead><TableHead>Permissions</TableHead><TableHead>Status</TableHead><TableHead className="w-[50px]"></TableHead></TableRow></TableHeader>
+                            <TableBody>
+                                {paginatedRoles.map(role => (
+                                    <TableRow key={role.id}>
+                                        <TableCell className="text-muted-foreground">{role.id}</TableCell>
+                                        <TableCell className="font-medium">{role.name}</TableCell>
+                                        <TableCell className="text-sm text-muted-foreground">{role.description}</TableCell>
+                                        <TableCell><div className="flex items-center gap-1.5"><ShieldCheck className="h-4 w-4 text-muted-foreground" /><span className="text-sm">{role.permissions?.length || 0} Permissions</span></div></TableCell>
+                                        <TableCell><Badge variant="success">Active</Badge></TableCell>
+                                        <TableCell>
+                                            <ActionDropdown actions={[
+                                                { label: 'Edit', icon: <Edit className="h-4 w-4" />, onClick: () => handleOpenEdit(role), variant: 'default' },
+                                                { label: 'Delete', icon: <Trash2 className="h-4 w-4" />, onClick: () => handleDelete(role.id), variant: 'danger' },
+                                            ]} />
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                                {roles.length === 0 && <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No roles found</TableCell></TableRow>}
+                            </TableBody>
+                        </Table>
+                        <Pagination
+                            currentPage={currentPage}
+                            totalPages={Math.ceil(roles.length / itemsPerPage)}
+                            onPageChange={setCurrentPage}
+                            totalItems={roles.length}
+                            pageSize={itemsPerPage}
+                        />
+                    </CardContent>
+                </Card>
+            ) : (
+                <RolePermissionMatrix 
+                    roles={roles} 
+                    permissions={permissions} 
+                    onUpdate={loadData} 
+                />
+            )}
 
             <Dialog open={showModal} onOpenChange={(open) => { if (!open) setShowModal(false); }}>
                 <DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>{editMode ? 'Edit Role' : 'New Role'}</DialogTitle></DialogHeader>

@@ -1,9 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Shield, Filter, ChevronLeft, ChevronRight, User, Calendar
+  ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { auditEventsService, AuditEvent, AuditAction, AuditEventQuery } from '../../services/auditEventsService';
 import { useToast } from '../../context/ToastContext';
+import { PageHeader } from '../../components/shared/PageHeader';
+import { Card, CardContent } from '../../components/ui/card';
+import { Input } from '../../components/ui/input';
+import { Button } from '../../components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 
 const AuditPage: React.FC = () => {
   const { showToast } = useToast();
@@ -51,95 +57,93 @@ const AuditPage: React.FC = () => {
   };
 
   return (
-    <div className="p-6">
-      <div className="flex items-center gap-3 mb-6">
-        <Shield className="w-6 h-6 text-blue-600" />
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Audit Trail</h1>
-          <p className="text-sm text-gray-500">{total} events</p>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <PageHeader title="Audit Trail" description={`${total} events`} />
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <select value={actionFilter} onChange={(e) => { setActionFilter(e.target.value as any); setPage(1); }}
-          className="border rounded-lg px-3 py-2 text-sm">
-          <option value="">All Actions</option>
-          {['issue', 'return', 'partial_return', 'transfer', 'lost', 'write_off', 'adjust', 'create', 'update', 'delete', 'dispose'].map((a) => (
-            <option key={a} value={a}>{a.replace(/_/g, ' ')}</option>
-          ))}
-        </select>
-        <select value={entityTypeFilter} onChange={(e) => { setEntityTypeFilter(e.target.value); setPage(1); }}
-          className="border rounded-lg px-3 py-2 text-sm">
-          <option value="">All Entities</option>
-          {['assignment', 'asset_unit', 'stock', 'catalog_item', 'return_transaction', 'user'].map((t) => (
-            <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
-          ))}
-        </select>
-        <input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
-          className="border rounded-lg px-3 py-2 text-sm" />
-        <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
-          className="border rounded-lg px-3 py-2 text-sm" />
+      <div className="flex flex-wrap items-center gap-3">
+        <Select value={actionFilter || 'all'} onValueChange={(v) => { setActionFilter(v === 'all' ? '' : (v as AuditAction)); setPage(1); }}>
+          <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Actions" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Actions</SelectItem>
+            {['issue', 'return', 'partial_return', 'transfer', 'lost', 'write_off', 'adjust', 'create', 'update', 'delete', 'dispose'].map((a) => (
+              <SelectItem key={a} value={a}>{a.replace(/_/g, ' ')}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={entityTypeFilter || 'all'} onValueChange={(v) => { setEntityTypeFilter(v === 'all' ? '' : v); setPage(1); }}>
+          <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Entities" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Entities</SelectItem>
+            {['assignment', 'asset_unit', 'stock', 'catalog_item', 'return_transaction', 'user'].map((t) => (
+              <SelectItem key={t} value={t}>{t.replace(/_/g, ' ')}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setPage(1); }} className="w-auto" />
+        <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setPage(1); }} className="w-auto" />
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-lg border overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="px-4 py-3 text-left font-medium text-gray-600">Timestamp</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-600">Action</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-600">Entity</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-600">Actor</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-600">Details</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {loading ? (
-              <tr><td colSpan={5} className="px-4 py-12 text-center text-gray-400">Loading...</td></tr>
-            ) : events.length === 0 ? (
-              <tr><td colSpan={5} className="px-4 py-12 text-center text-gray-400">No events</td></tr>
-            ) : events.map((e) => (
-              <tr key={e.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
-                  {new Date(e.createdAt).toLocaleString()}
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${actionColors[e.action] || 'bg-gray-100 text-gray-700'}`}>
-                    {e.action.replace(/_/g, ' ')}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  <span className="text-gray-600">{e.entityType}</span>
-                  {e.entityId && <span className="text-gray-400 ml-1">#{e.entityId}</span>}
-                </td>
-                <td className="px-4 py-3">
-                  {e.actor ? `${e.actor.firstName} ${e.actor.lastName}` : 'System'}
-                </td>
-                <td className="px-4 py-3 max-w-xs">
-                  <details>
-                    <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">
-                      {Object.keys(e.metadata).length} fields
-                    </summary>
-                    <pre className="text-xs bg-gray-50 p-2 rounded mt-1 max-h-40 overflow-auto">
-                      {JSON.stringify(e.metadata, null, 2)}
-                    </pre>
-                  </details>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
-            <span className="text-sm text-gray-600">Page {page} of {totalPages}</span>
-            <div className="flex gap-1">
-              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="p-1 rounded hover:bg-gray-200 disabled:opacity-40"><ChevronLeft className="w-4 h-4" /></button>
-              <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="p-1 rounded hover:bg-gray-200 disabled:opacity-40"><ChevronRight className="w-4 h-4" /></button>
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Timestamp</TableHead>
+                <TableHead>Action</TableHead>
+                <TableHead>Entity</TableHead>
+                <TableHead>Actor</TableHead>
+                <TableHead>Details</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow><TableCell colSpan={5} className="text-center py-12 text-muted-foreground">Loading...</TableCell></TableRow>
+              ) : events.length === 0 ? (
+                <TableRow><TableCell colSpan={5} className="text-center py-12 text-muted-foreground">No events</TableCell></TableRow>
+              ) : events.map((e) => (
+                <TableRow key={e.id}>
+                  <TableCell className="text-muted-foreground whitespace-nowrap">
+                    {new Date(e.createdAt).toLocaleString()}
+                  </TableCell>
+                  <TableCell>
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${actionColors[e.action] || 'bg-muted text-foreground'}`}>
+                      {e.action.replace(/_/g, ' ')}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-muted-foreground">{e.entityType}</span>
+                    {e.entityId && <span className="text-muted-foreground/70 ml-1">#{e.entityId}</span>}
+                  </TableCell>
+                  <TableCell>
+                    {e.actor ? `${e.actor.firstName} ${e.actor.lastName}` : 'System'}
+                  </TableCell>
+                  <TableCell className="max-w-xs">
+                    <details>
+                      <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+                        {Object.keys(e.metadata).length} fields
+                      </summary>
+                      <pre className="text-xs bg-muted/40 p-2 rounded mt-1 max-h-40 overflow-auto">
+                        {JSON.stringify(e.metadata, null, 2)}
+                      </pre>
+                    </details>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t bg-muted/40">
+              <span className="text-sm text-muted-foreground">Page {page} of {totalPages}</span>
+              <div className="flex gap-1">
+                <Button variant="ghost" size="icon" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}><ChevronLeft className="w-4 h-4" /></Button>
+                <Button variant="ghost" size="icon" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}><ChevronRight className="w-4 h-4" /></Button>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 };

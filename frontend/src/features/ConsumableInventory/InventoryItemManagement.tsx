@@ -53,6 +53,7 @@ export default function ConsumableItemManagement() {
         categoryId: "",
         isRefundable: false,
         minStockLevel: 5,
+        unitsPerPack: 1,
         status: "active"
     });
 
@@ -102,7 +103,7 @@ export default function ConsumableItemManagement() {
             });
             showToast("Item created successfully", "success");
             setIsAdding(false);
-            setNewItem({ name: "", categoryId: "", isRefundable: false, minStockLevel: 5, status: "active" });
+            setNewItem({ name: "", categoryId: "", isRefundable: false, minStockLevel: 5, unitsPerPack: 1, status: "active" });
             loadData();
         } catch (error) {
             showToast("Failed to create item", "error");
@@ -168,6 +169,16 @@ export default function ConsumableItemManagement() {
                                         onChange={(e) => setNewItem({ ...newItem, minStockLevel: parseInt(e.target.value) })}
                                     />
                                 </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="unitsPerPack">Units per Pack</Label>
+                                    <Input
+                                        id="unitsPerPack"
+                                        type="number"
+                                        min={1}
+                                        value={newItem.unitsPerPack}
+                                        onChange={(e) => setNewItem({ ...newItem, unitsPerPack: parseInt(e.target.value) || 1 })}
+                                    />
+                                </div>
                             </div>
                             <DialogFooter>
                                 <Button variant="outline" onClick={() => setIsAdding(false)}>Cancel</Button>
@@ -212,6 +223,11 @@ export default function ConsumableItemManagement() {
                                                 </span>
                                                 <span className="text-muted-foreground">/</span>
                                                 <span>{item.totalStock}</span>
+                                                {(item.unitsPerPack || 1) > 1 && (
+                                                    <span className="text-muted-foreground text-xs">
+                                                        ({Math.floor(item.totalStock / item.unitsPerPack)} packs)
+                                                    </span>
+                                                )}
                                                 {item.availableStock <= item.minStockLevel && (
                                                     <AlertTriangle className="h-4 w-4 text-destructive" />
                                                 )}

@@ -82,6 +82,9 @@ export class CatalogItem {
   @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true })
   unitCost: number;
 
+  @Column({ name: 'currency', length: 3, default: 'INR' })
+  currency: string;
+
   @Column({ default: true })
   isActive: boolean;
 

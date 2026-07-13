@@ -26,6 +26,7 @@ export interface Asset {
     acquisitionType?: string;
     purchaseDate?: string;
     purchaseCost?: number;
+    currency?: string;
     vendor?: string;
     vendorId?: number;
     receivedFromVendorDate?: string;

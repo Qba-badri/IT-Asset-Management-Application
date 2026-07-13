@@ -133,6 +133,9 @@ export class Asset {
     })
     purchaseCost: number;
 
+    @Column({ name: 'currency', length: 3, default: 'INR' })
+    currency: string;
+
     @Column({ name: 'warranty_expiry', type: 'date', nullable: true })
     warrantyExpiry: Date;
 

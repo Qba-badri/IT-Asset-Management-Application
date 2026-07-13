@@ -3,7 +3,7 @@ import Chart from 'react-apexcharts';
 import {
     RefreshCw, BarChart3, Key, Package, Users, AlertTriangle,
     ShieldAlert, TrendingUp, TrendingDown, CheckCircle, Clock,
-    ChevronDown, Server, Layers, Activity, AlertCircle,
+    Server, Layers, Activity, AlertCircle,
     XCircle, Cpu, RotateCcw, ArrowUpRight, ArrowDownRight,
 } from 'lucide-react';
 import {
@@ -21,6 +21,11 @@ import {
 import { masterService, Department, Location, Brand } from '../../services/masterService';
 import { useToast } from '../../context/ToastContext';
 import { useCurrency } from '../../context/CurrencyContext';
+import { PageHeader } from '../../components/shared/PageHeader';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent } from '../../components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
+import { cn } from '../../lib/utils';
 
 /* ══════════════════════ helpers ══════════════════════ */
 const num = (v: number | string | null | undefined) => Number(v ?? 0);
@@ -44,30 +49,32 @@ interface KpiCardProps {
 const KpiCard: React.FC<KpiCardProps> = ({ icon, label, value, sub, trend, accent = '#2563eb', iconBg = '#eff6ff' }) => {
     const trendUp = trend && trend.value >= 0;
     return (
-        <div className="analytics-kpi-card">
-            <div className="analytics-kpi-top">
-                <div className="analytics-kpi-icon" style={({ background: iconBg, color: accent }) as React.CSSProperties}>
-                    {icon}
+        <Card>
+            <CardContent className="p-4">
+                <div className="analytics-kpi-top">
+                    <div className="analytics-kpi-icon" style={({ background: iconBg, color: accent }) as React.CSSProperties}>
+                        {icon}
+                    </div>
+                    {trend && (
+                        <span className={`analytics-trend ${trendUp ? 'trend-up' : 'trend-down'}`}>
+                            {trendUp ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+                            {Math.abs(trend.value)}%
+                        </span>
+                    )}
                 </div>
-                {trend && (
-                    <span className={`analytics-trend ${trendUp ? 'trend-up' : 'trend-down'}`}>
-                        {trendUp ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-                        {Math.abs(trend.value)}%
-                    </span>
-                )}
-            </div>
-            <p className="analytics-kpi-value">{typeof value === 'number' ? fmt(value) : value}</p>
-            <p className="analytics-kpi-label">{label}</p>
-            {sub && <p className="analytics-kpi-sub">{sub}</p>}
-        </div>
+                <p className="analytics-kpi-value text-foreground">{typeof value === 'number' ? fmt(value) : value}</p>
+                <p className="analytics-kpi-label text-muted-foreground">{label}</p>
+                {sub && <p className="analytics-kpi-sub text-muted-foreground">{sub}</p>}
+            </CardContent>
+        </Card>
     );
 };
 
 /* Section header */
 const SectionHead: React.FC<{ title: string; note?: string }> = ({ title, note }) => (
     <div className="analytics-section-head">
-        <span className="analytics-section-title">{title}</span>
-        {note && <span className="analytics-section-note">{note}</span>}
+        <span className="analytics-section-title text-foreground">{title}</span>
+        {note && <span className="analytics-section-note text-muted-foreground">{note}</span>}
     </div>
 );
 
@@ -105,7 +112,7 @@ const chartFont = { fontFamily: 'Inter, system-ui, sans-serif' };
 /* ══════════════════════ MAIN COMPONENT ══════════════════════ */
 const AnalyticsDashboard: React.FC = () => {
     const { showToast } = useToast();
-    const { formatCost } = useCurrency();
+    const { formatDisplayAmount } = useCurrency();
 
     const [activeTab, setActiveTab] = useState<TabKey>('overview');
     const [loading, setLoading] = useState(true);
@@ -278,7 +285,7 @@ const AnalyticsDashboard: React.FC = () => {
     /* ══════ LOADING ══════ */
     if (loading) {
         return (
-            <div className="analytics-loading">
+            <div className="analytics-loading text-muted-foreground">
                 <RefreshCw className="animate-spin" size={28} />
                 <span>Loading analytics…</span>
             </div>
@@ -295,13 +302,15 @@ const AnalyticsDashboard: React.FC = () => {
         { key: 'alerts', label: 'Alerts', icon: <AlertTriangle size={15} /> },
     ];
 
+    const totalAlertsCount = num(alerts?.warrantyExpiring) + num(alerts?.lowStockItems) + num(alerts?.expiredLicenses) + num(alerts?.overdueReturns);
+
     /* ══════ PANELS ══════ */
 
     const renderOverview = () => (
         <div className="analytics-panel">
             {/* KPIs */}
             <div className="analytics-kpi-grid">
-                <KpiCard icon={<Server size={18} />} label="Total Assets" value={num(global?.totalAssets)} sub={`${formatCost(num(global?.totalAssetValue))} total value`} accent="#2563eb" iconBg="#eff6ff" />
+                <KpiCard icon={<Server size={18} />} label="Total Assets" value={num(global?.totalAssets)} sub={`${formatDisplayAmount(num(global?.totalAssetValue))} total value`} accent="#2563eb" iconBg="#eff6ff" />
                 <KpiCard icon={<Key size={18} />} label="Licenses" value={num(global?.totalLicenses)} sub="Software titles" accent="#7c3aed" iconBg="#f5f3ff" />
                 <KpiCard icon={<Package size={18} />} label="Inventory Items" value={num(global?.totalInventoryItems)} sub={`${num(inventory?.lowStockAlerts)} low stock`} accent="#d97706" iconBg="#fffbeb" />
                 <KpiCard icon={<Users size={18} />} label="Total Users" value={num(global?.totalUsers)} sub={`${num(users?.activeUsers)} active`} accent="#059669" iconBg="#ecfdf5" />
@@ -311,57 +320,63 @@ const AnalyticsDashboard: React.FC = () => {
 
             {/* Charts row */}
             <div className="analytics-charts-row">
-                <div className="analytics-chart-card col-2">
-                    <SectionHead title="Asset Distribution by Status" note={`${num(global?.totalAssets)} total`} />
-                    {assetStatusSeries.length > 0 && assetStatusSeries.some(v => v > 0)
-                        ? <Chart options={donutOptions} series={assetStatusSeries} type="donut" height={280} />
-                        : <div className="analytics-no-data">No asset data</div>
-                    }
-                </div>
-                <div className="analytics-chart-card col-3">
-                    <SectionHead title="Stock Movement" note="This vs Last period" />
-                    <Chart
-                        options={stockMovOptions}
-                        series={[{ name: 'Last Period', data: smLast }, { name: 'This Period', data: smThis }]}
-                        type="bar" height={280}
-                    />
-                </div>
+                <Card className="col-2">
+                    <CardContent className="p-5">
+                        <SectionHead title="Asset Distribution by Status" note={`${num(global?.totalAssets)} total`} />
+                        {assetStatusSeries.length > 0 && assetStatusSeries.some(v => v > 0)
+                            ? <Chart options={donutOptions} series={assetStatusSeries} type="donut" height={280} />
+                            : <div className="analytics-no-data">No asset data</div>
+                        }
+                    </CardContent>
+                </Card>
+                <Card className="col-3">
+                    <CardContent className="p-5">
+                        <SectionHead title="Stock Movement" note="This vs Last period" />
+                        <Chart
+                            options={stockMovOptions}
+                            series={[{ name: 'Last Period', data: smLast }, { name: 'This Period', data: smThis }]}
+                            type="bar" height={280}
+                        />
+                    </CardContent>
+                </Card>
             </div>
 
             {/* Recent Activity */}
-            <div className="analytics-chart-card">
-                <div className="analytics-section-head">
-                    <span className="analytics-section-title">Recent Activity</span>
-                    <span className="analytics-live-dot"><span />Live</span>
-                </div>
-                {activity.length > 0 ? (
-                    <div className="analytics-activity-list">
-                        {activity.slice(0, 8).map((log: ActivityLog) => {
-                            const isCreate = log.action?.includes('CREATE');
-                            const isDelete = log.action?.includes('DELETE');
-                            return (
-                                <div key={log.id} className="analytics-activity-row">
-                                    <div className={`activity-icon ${isCreate ? 'create' : isDelete ? 'delete' : 'update'}`}>
-                                        {isCreate ? <CheckCircle size={14} /> : isDelete ? <XCircle size={14} /> : <RefreshCw size={14} />}
-                                    </div>
-                                    <div className="activity-body">
-                                        <p className="activity-action">
-                                            {(log.action || '').replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c: string) => c.toUpperCase())}
-                                        </p>
-                                        <p className="activity-entity">{log.entityType}</p>
-                                    </div>
-                                    <div className="activity-time">
-                                        <p>{new Date(log.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}</p>
-                                        <p>{new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                                    </div>
-                                </div>
-                            );
-                        })}
+            <Card>
+                <CardContent className="p-5">
+                    <div className="analytics-section-head">
+                        <span className="analytics-section-title text-foreground">Recent Activity</span>
+                        <span className="analytics-live-dot"><span />Live</span>
                     </div>
-                ) : (
-                    <div className="analytics-no-data"><Clock size={24} /><span>No recent activity</span></div>
-                )}
-            </div>
+                    {activity.length > 0 ? (
+                        <div className="analytics-activity-list">
+                            {activity.slice(0, 8).map((log: ActivityLog) => {
+                                const isCreate = log.action?.includes('CREATE');
+                                const isDelete = log.action?.includes('DELETE');
+                                return (
+                                    <div key={log.id} className="analytics-activity-row">
+                                        <div className={`activity-icon ${isCreate ? 'create' : isDelete ? 'delete' : 'update'}`}>
+                                            {isCreate ? <CheckCircle size={14} /> : isDelete ? <XCircle size={14} /> : <RefreshCw size={14} />}
+                                        </div>
+                                        <div className="activity-body">
+                                            <p className="activity-action text-foreground">
+                                                {(log.action || '').replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c: string) => c.toUpperCase())}
+                                            </p>
+                                            <p className="activity-entity text-muted-foreground">{log.entityType}</p>
+                                        </div>
+                                        <div className="activity-time text-muted-foreground">
+                                            <p>{new Date(log.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}</p>
+                                            <p>{new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <div className="analytics-no-data"><Clock size={24} /><span>No recent activity</span></div>
+                    )}
+                </CardContent>
+            </Card>
         </div>
     );
 
@@ -373,56 +388,67 @@ const AnalyticsDashboard: React.FC = () => {
                 <KpiCard icon={<Cpu size={18} />} label="Recently Added" value={num(assets?.recentlyAdded)} sub="Last 30 days" accent="#7c3aed" iconBg="#f5f3ff" />
                 <KpiCard icon={<ShieldAlert size={18} />} label="Warranty Expiring" value={num(assets?.warrantyExpiring60)} sub="Within 60 days" accent="#dc2626" iconBg="#fef2f2" />
                 <KpiCard icon={<AlertTriangle size={18} />} label="Expiring in 30d" value={num(assets?.warrantyExpiring30)} sub="Critical window" accent="#d97706" iconBg="#fffbeb" />
-                <KpiCard icon={<Activity size={18} />} label="Total Asset Value" value={formatCost(num(global?.totalAssetValue))} accent="#0891b2" iconBg="#ecfeff" />
+                <KpiCard icon={<Activity size={18} />} label="Total Asset Value" value={formatDisplayAmount(num(global?.totalAssetValue))} accent="#0891b2" iconBg="#ecfeff" />
             </div>
             <div className="analytics-charts-row">
-                <div className="analytics-chart-card col-2">
-                    <SectionHead title="Assets by Status" />
-                    {assetStatusSeries.some(v => v > 0)
-                        ? <Chart options={donutOptions} series={assetStatusSeries} type="donut" height={300} />
-                        : <div className="analytics-no-data">No data</div>
-                    }
-                </div>
-                <div className="analytics-chart-card col-3">
-                    <SectionHead title="Assets by Category" />
-                    {catSeries.length > 0
-                        ? <Chart options={catBarOptions} series={[{ name: 'Assets', data: catSeries }]} type="bar" height={300} />
-                        : <div className="analytics-no-data">No category data</div>
-                    }
-                </div>
+                <Card className="col-2">
+                    <CardContent className="p-5">
+                        <SectionHead title="Assets by Status" />
+                        {assetStatusSeries.some(v => v > 0)
+                            ? <Chart options={donutOptions} series={assetStatusSeries} type="donut" height={300} />
+                            : <div className="analytics-no-data">No data</div>
+                        }
+                    </CardContent>
+                </Card>
+                <Card className="col-3">
+                    <CardContent className="p-5">
+                        <SectionHead title="Assets by Category" />
+                        {catSeries.length > 0
+                            ? <Chart options={catBarOptions} series={[{ name: 'Assets', data: catSeries }]} type="bar" height={300} />
+                            : <div className="analytics-no-data">No category data</div>
+                        }
+                    </CardContent>
+                </Card>
             </div>
             {/* Status breakdown table */}
-            <div className="analytics-chart-card">
-                <SectionHead title="Status Breakdown" />
-                <div className="analytics-table-wrap">
-                    <table className="analytics-table">
-                        <thead>
-                            <tr><th>Status</th><th>Count</th><th>Share</th><th>Distribution</th></tr>
-                        </thead>
-                        <tbody>
+            <Card>
+                <CardContent className="p-5 pb-0">
+                    <SectionHead title="Status Breakdown" />
+                </CardContent>
+                <CardContent className="p-0">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Status</TableHead>
+                                <TableHead>Count</TableHead>
+                                <TableHead>Share</TableHead>
+                                <TableHead>Distribution</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
                             {(assets?.byStatus || []).map((s, i) => {
                                 const count = parseInt(s.count);
                                 const share = pct(count, num(global?.totalAssets));
                                 return (
-                                    <tr key={s.status}>
-                                        <td>
+                                    <TableRow key={s.status}>
+                                        <TableCell>
                                             <span className="status-dot" style={({ background: CHART_COLORS[i % CHART_COLORS.length] }) as React.CSSProperties} />
                                             {s.status.charAt(0).toUpperCase() + s.status.slice(1)}
-                                        </td>
-                                        <td className="tabular-nums font-semibold">{fmt(count)}</td>
-                                        <td className="tabular-nums text-gray">{share}%</td>
-                                        <td className="w-40">
+                                        </TableCell>
+                                        <TableCell className="tabular-nums font-semibold text-foreground">{fmt(count)}</TableCell>
+                                        <TableCell className="tabular-nums text-muted-foreground">{share}%</TableCell>
+                                        <TableCell className="w-40">
                                             <div className="mini-bar-track">
                                                 <div className="mini-bar-fill" style={({ width: `${share}%`, background: CHART_COLORS[i % CHART_COLORS.length] }) as React.CSSProperties} />
                                             </div>
-                                        </td>
-                                    </tr>
+                                        </TableCell>
+                                    </TableRow>
                                 );
                             })}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+                        </TableBody>
+                    </Table>
+                </CardContent>
+            </Card>
         </div>
     );
 
@@ -438,32 +464,36 @@ const AnalyticsDashboard: React.FC = () => {
             </div>
 
             <div className="analytics-charts-row">
-                <div className="analytics-chart-card col-3">
-                    <SectionHead title="License Seat Utilization (Top Titles)" note={`${licenseUtil.length} titles`} />
-                    {luLabels.length > 0
-                        ? <Chart
-                            options={{ ...luBarOptions, xaxis: { ...luBarOptions.xaxis, categories: luLabels } }}
-                            series={[{ name: 'Used', data: luUsed }, { name: 'Available', data: luFree }]}
-                            type="bar" height={Math.max(220, luLabels.length * 52)}
-                        />
-                        : <div className="analytics-no-data">No license data</div>
-                    }
-                </div>
-                <div className="analytics-chart-card col-2">
-                    <SectionHead title="Seat Overview" />
-                    <div className="py-2">
-                        <ProgressRow label="Used Seats" value={num(licenses?.assigned)} total={num(licenses?.assigned) + num(licenses?.available)} color="#2563eb" />
-                        <ProgressRow label="Available Seats" value={num(licenses?.available)} total={num(licenses?.assigned) + num(licenses?.available)} color="#16a34a" />
-                        <ProgressRow label="Expired Licenses" value={num(licenses?.expired)} total={num(licenses?.total)} color="#dc2626" />
-                        <ProgressRow label="Expiring in 30d" value={num(licenses?.expiringSoon)} total={num(licenses?.total)} color="#f59e0b" />
-                    </div>
-                    <div className="license-compliance-badge">
-                        <span className="compliance-label">Compliance Score</span>
-                        <span className={`compliance-score ${num(licenses?.compliancePercentage) >= 80 ? 'good' : 'warn'}`}>
-                            {num(licenses?.compliancePercentage)}%
-                        </span>
-                    </div>
-                </div>
+                <Card className="col-3">
+                    <CardContent className="p-5">
+                        <SectionHead title="License Seat Utilization (Top Titles)" note={`${licenseUtil.length} titles`} />
+                        {luLabels.length > 0
+                            ? <Chart
+                                options={{ ...luBarOptions, xaxis: { ...luBarOptions.xaxis, categories: luLabels } }}
+                                series={[{ name: 'Used', data: luUsed }, { name: 'Available', data: luFree }]}
+                                type="bar" height={Math.max(220, luLabels.length * 52)}
+                            />
+                            : <div className="analytics-no-data">No license data</div>
+                        }
+                    </CardContent>
+                </Card>
+                <Card className="col-2">
+                    <CardContent className="p-5">
+                        <SectionHead title="Seat Overview" />
+                        <div className="py-2">
+                            <ProgressRow label="Used Seats" value={num(licenses?.assigned)} total={num(licenses?.assigned) + num(licenses?.available)} color="#2563eb" />
+                            <ProgressRow label="Available Seats" value={num(licenses?.available)} total={num(licenses?.assigned) + num(licenses?.available)} color="#16a34a" />
+                            <ProgressRow label="Expired Licenses" value={num(licenses?.expired)} total={num(licenses?.total)} color="#dc2626" />
+                            <ProgressRow label="Expiring in 30d" value={num(licenses?.expiringSoon)} total={num(licenses?.total)} color="#f59e0b" />
+                        </div>
+                        <div className="license-compliance-badge">
+                            <span className="compliance-label">Compliance Score</span>
+                            <span className={`compliance-score ${num(licenses?.compliancePercentage) >= 80 ? 'good' : 'warn'}`}>
+                                {num(licenses?.compliancePercentage)}%
+                            </span>
+                        </div>
+                    </CardContent>
+                </Card>
             </div>
         </div>
     );
@@ -482,32 +512,38 @@ const AnalyticsDashboard: React.FC = () => {
                     <KpiCard icon={<Package size={18} />} label="Non-Refundable" value={nonRefundable} accent="#0891b2" iconBg="#ecfeff" />
                 </div>
                 <div className="analytics-charts-row">
-                    <div className="analytics-chart-card col-2">
-                        <SectionHead title="Refundable vs Non-Refundable" />
-                        {(refundable + nonRefundable) > 0
-                            ? <Chart options={inventoryDonutOptions} series={[refundable, nonRefundable]} type="donut" height={280} />
-                            : <div className="analytics-no-data">No data</div>
-                        }
-                    </div>
-                    <div className="analytics-chart-card col-3">
-                        <SectionHead title="Stock Health Overview" />
-                        <div className="py-3">
-                            <ProgressRow label="Total Stock" value={num(inventory?.totalStockUnits)} total={num(inventory?.totalStockUnits)} color="#2563eb" />
-                            <ProgressRow label="Available" value={num(inventory?.availableUnits)} total={num(inventory?.totalStockUnits)} color="#16a34a" />
-                            <ProgressRow label="Low Stock Items" value={num(inventory?.lowStockAlerts)} total={num(inventory?.totalStockUnits)} color="#f59e0b" />
-                            <ProgressRow label="Out of Stock Items" value={num(inventory?.outOfStock)} total={num(inventory?.totalStockUnits)} color="#dc2626" />
-                        </div>
-                        <div className="analytics-charts-row mt-4">
-                            <div className="analytics-chart-card col-5">
-                                <SectionHead title="Stock Movement This Period" />
-                                <Chart
-                                    options={stockMovOptions}
-                                    series={[{ name: 'Last Period', data: smLast }, { name: 'This Period', data: smThis }]}
-                                    type="bar" height={220}
-                                />
+                    <Card className="col-2">
+                        <CardContent className="p-5">
+                            <SectionHead title="Refundable vs Non-Refundable" />
+                            {(refundable + nonRefundable) > 0
+                                ? <Chart options={inventoryDonutOptions} series={[refundable, nonRefundable]} type="donut" height={280} />
+                                : <div className="analytics-no-data">No data</div>
+                            }
+                        </CardContent>
+                    </Card>
+                    <Card className="col-3">
+                        <CardContent className="p-5">
+                            <SectionHead title="Stock Health Overview" />
+                            <div className="py-3">
+                                <ProgressRow label="Total Stock" value={num(inventory?.totalStockUnits)} total={num(inventory?.totalStockUnits)} color="#2563eb" />
+                                <ProgressRow label="Available" value={num(inventory?.availableUnits)} total={num(inventory?.totalStockUnits)} color="#16a34a" />
+                                <ProgressRow label="Low Stock Items" value={num(inventory?.lowStockAlerts)} total={num(inventory?.totalStockUnits)} color="#f59e0b" />
+                                <ProgressRow label="Out of Stock Items" value={num(inventory?.outOfStock)} total={num(inventory?.totalStockUnits)} color="#dc2626" />
                             </div>
-                        </div>
-                    </div>
+                            <div className="analytics-charts-row mt-4">
+                                <Card className="col-5">
+                                    <CardContent className="p-5">
+                                        <SectionHead title="Stock Movement This Period" />
+                                        <Chart
+                                            options={stockMovOptions}
+                                            series={[{ name: 'Last Period', data: smLast }, { name: 'This Period', data: smThis }]}
+                                            type="bar" height={220}
+                                        />
+                                    </CardContent>
+                                </Card>
+                            </div>
+                        </CardContent>
+                    </Card>
                 </div>
             </div>
         );
@@ -522,60 +558,64 @@ const AnalyticsDashboard: React.FC = () => {
                 <KpiCard icon={<Activity size={18} />} label="Active Assignments" value={num(global?.activeAssignments)} sub="Items on loan" accent="#7c3aed" iconBg="#f5f3ff" />
             </div>
             <div className="analytics-charts-row">
-                <div className="analytics-chart-card col-5">
-                    <SectionHead title="User Activity Status" />
-                    <Chart
-                        options={{
-                            chart: { type: 'donut', ...chartFont, toolbar: { show: false } },
-                            labels: ['Active Users', 'Inactive Users'],
-                            colors: ['#16a34a', '#e5e7eb'],
-                            stroke: { show: false },
-                            dataLabels: { enabled: false },
-                            plotOptions: {
-                                pie: {
-                                    donut: {
-                                        size: '70%',
-                                        labels: {
-                                            show: true,
-                                            total: {
-                                                show: true, label: 'Users', fontSize: '12px',
-                                                fontWeight: 700, color: '#6b7280',
-                                                formatter: () => String(num(users?.totalUsers))
-                                            },
-                                            value: { fontSize: '22px', fontWeight: 800, color: '#111827' }
+                <Card className="col-5">
+                    <CardContent className="p-5">
+                        <SectionHead title="User Activity Status" />
+                        <Chart
+                            options={{
+                                chart: { type: 'donut', ...chartFont, toolbar: { show: false } },
+                                labels: ['Active Users', 'Inactive Users'],
+                                colors: ['#16a34a', '#e5e7eb'],
+                                stroke: { show: false },
+                                dataLabels: { enabled: false },
+                                plotOptions: {
+                                    pie: {
+                                        donut: {
+                                            size: '70%',
+                                            labels: {
+                                                show: true,
+                                                total: {
+                                                    show: true, label: 'Users', fontSize: '12px',
+                                                    fontWeight: 700, color: '#6b7280',
+                                                    formatter: () => String(num(users?.totalUsers))
+                                                },
+                                                value: { fontSize: '22px', fontWeight: 800, color: '#111827' }
+                                            }
                                         }
                                     }
-                                }
-                            },
-                            legend: { position: 'bottom', fontSize: '12px', fontWeight: '600', markers: { size: 6 } },
-                            tooltip: { theme: 'light' }
-                        }}
-                        series={[num(users?.activeUsers), Math.max(0, num(users?.totalUsers) - num(users?.activeUsers))]}
-                        type="donut" height={300}
-                    />
-                </div>
-                <div className="analytics-chart-card col-5">
-                    <SectionHead title="Department Insights" />
-                    <div className="users-info-block">
-                        <div className="users-info-row">
-                            <span className="ui-label">Most Active Department</span>
-                            <span className="ui-value dept-chip">{users?.mostAssignedDepartment || 'N/A'}</span>
-                        </div>
-                        <div className="users-info-row">
-                            <span className="ui-label">Active Rate</span>
-                            <div className="ui-progress-wrap">
-                                <div className="ui-progress-bar" style={({ width: `${pct(num(users?.activeUsers), num(users?.totalUsers))}%` }) as React.CSSProperties} />
-                                <span className="ui-progress-label">{pct(num(users?.activeUsers), num(users?.totalUsers))}%</span>
+                                },
+                                legend: { position: 'bottom', fontSize: '12px', fontWeight: '600', markers: { size: 6 } },
+                                tooltip: { theme: 'light' }
+                            }}
+                            series={[num(users?.activeUsers), Math.max(0, num(users?.totalUsers) - num(users?.activeUsers))]}
+                            type="donut" height={300}
+                        />
+                    </CardContent>
+                </Card>
+                <Card className="col-5">
+                    <CardContent className="p-5">
+                        <SectionHead title="Department Insights" />
+                        <div className="users-info-block">
+                            <div className="users-info-row">
+                                <span className="ui-label">Most Active Department</span>
+                                <span className="ui-value dept-chip">{users?.mostAssignedDepartment || 'N/A'}</span>
+                            </div>
+                            <div className="users-info-row">
+                                <span className="ui-label">Active Rate</span>
+                                <div className="ui-progress-wrap">
+                                    <div className="ui-progress-bar" style={({ width: `${pct(num(users?.activeUsers), num(users?.totalUsers))}%` }) as React.CSSProperties} />
+                                    <span className="ui-progress-label">{pct(num(users?.activeUsers), num(users?.totalUsers))}%</span>
+                                </div>
+                            </div>
+                            <div className="users-info-row">
+                                <span className="ui-label">Avg Assignments/User</span>
+                                <span className="ui-value">
+                                    {num(users?.totalUsers) > 0 ? (num(global?.activeAssignments) / num(users?.totalUsers)).toFixed(1) : '0'}
+                                </span>
                             </div>
                         </div>
-                        <div className="users-info-row">
-                            <span className="ui-label">Avg Assignments/User</span>
-                            <span className="ui-value">
-                                {num(users?.totalUsers) > 0 ? (num(global?.activeAssignments) / num(users?.totalUsers)).toFixed(1) : '0'}
-                            </span>
-                        </div>
-                    </div>
-                </div>
+                    </CardContent>
+                </Card>
             </div>
         </div>
     );
@@ -594,38 +634,42 @@ const AnalyticsDashboard: React.FC = () => {
                 </div>
 
                 {totalAlerts > 0 && (
-                    <div className="analytics-chart-card">
-                        <SectionHead title="Alert Summary" note={`${totalAlerts} total alerts`} />
-                        <div className="alerts-list">
-                            {num(alerts?.warrantyExpiring30) > 0 && (
-                                <AlertRow icon={<ShieldAlert size={16} />} label="Warranties expiring within 30 days" count={num(alerts?.warrantyExpiring30)} severity="critical" />
-                            )}
-                            {num(alerts?.expiredLicenses) > 0 && (
-                                <AlertRow icon={<Key size={16} />} label="Licenses already expired" count={num(alerts?.expiredLicenses)} severity="critical" />
-                            )}
-                            {num(alerts?.overdueReturns) > 0 && (
-                                <AlertRow icon={<Clock size={16} />} label="Overdue return assignments" count={num(alerts?.overdueReturns)} severity="critical" />
-                            )}
-                            {num(alerts?.warrantyExpiring) > 0 && (
-                                <AlertRow icon={<ShieldAlert size={16} />} label="Warranties expiring within 60 days" count={num(alerts?.warrantyExpiring)} severity="warning" />
-                            )}
-                            {num(alerts?.lowStockItems) > 0 && (
-                                <AlertRow icon={<Package size={16} />} label="Inventory items below minimum stock level" count={num(alerts?.lowStockItems)} severity="warning" />
-                            )}
-                            {num(alerts?.assetsUnassigned) > 0 && (
-                                <AlertRow icon={<Server size={16} />} label="Assets available but not yet assigned" count={num(alerts?.assetsUnassigned)} severity="info" />
-                            )}
-                        </div>
-                    </div>
+                    <Card>
+                        <CardContent className="p-5">
+                            <SectionHead title="Alert Summary" note={`${totalAlerts} total alerts`} />
+                            <div className="alerts-list">
+                                {num(alerts?.warrantyExpiring30) > 0 && (
+                                    <AlertRow icon={<ShieldAlert size={16} />} label="Warranties expiring within 30 days" count={num(alerts?.warrantyExpiring30)} severity="critical" />
+                                )}
+                                {num(alerts?.expiredLicenses) > 0 && (
+                                    <AlertRow icon={<Key size={16} />} label="Licenses already expired" count={num(alerts?.expiredLicenses)} severity="critical" />
+                                )}
+                                {num(alerts?.overdueReturns) > 0 && (
+                                    <AlertRow icon={<Clock size={16} />} label="Overdue return assignments" count={num(alerts?.overdueReturns)} severity="critical" />
+                                )}
+                                {num(alerts?.warrantyExpiring) > 0 && (
+                                    <AlertRow icon={<ShieldAlert size={16} />} label="Warranties expiring within 60 days" count={num(alerts?.warrantyExpiring)} severity="warning" />
+                                )}
+                                {num(alerts?.lowStockItems) > 0 && (
+                                    <AlertRow icon={<Package size={16} />} label="Inventory items below minimum stock level" count={num(alerts?.lowStockItems)} severity="warning" />
+                                )}
+                                {num(alerts?.assetsUnassigned) > 0 && (
+                                    <AlertRow icon={<Server size={16} />} label="Assets available but not yet assigned" count={num(alerts?.assetsUnassigned)} severity="info" />
+                                )}
+                            </div>
+                        </CardContent>
+                    </Card>
                 )}
 
                 {totalAlerts === 0 && (
-                    <div className="analytics-chart-card">
-                        <div className="analytics-no-data py-12">
-                            <CheckCircle size={40} className="text-green-600" />
-                            <span className="text-green-600 font-semibold">All clear — no active alerts!</span>
-                        </div>
-                    </div>
+                    <Card>
+                        <CardContent className="p-5">
+                            <div className="analytics-no-data py-12">
+                                <CheckCircle size={40} className="text-green-600" />
+                                <span className="text-green-600 font-semibold">All clear — no active alerts!</span>
+                            </div>
+                        </CardContent>
+                    </Card>
                 )}
             </div>
         );
@@ -643,44 +687,36 @@ const AnalyticsDashboard: React.FC = () => {
     return (
         <>
             <style>{CSS}</style>
-            <div className={`analytics-root ${refreshing ? 'analytics-refreshing' : ''}`}>
+            <div className={cn('space-y-6', refreshing && 'opacity-60 pointer-events-none transition-opacity')}>
 
                 {/* ── Header ── */}
-                <div className="analytics-header">
-                    <div>
-                        <h1 className="analytics-title">Analytics & Reporting</h1>
-                        <p className="analytics-subtitle">
-                            {lastUpdated
-                                ? `Last updated · ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                                : 'Comprehensive IT asset intelligence'}
-                        </p>
-                    </div>
-                    <button
-                        className="analytics-refresh-btn"
-                        onClick={() => loadAll({})}
-                        disabled={refreshing}
-                    >
-                        <RefreshCw size={15} className={refreshing ? 'spin' : ''} />
+                <PageHeader
+                    title="Analytics & Reporting"
+                    description={lastUpdated
+                        ? `Last updated · ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                        : 'Comprehensive IT asset intelligence'}
+                >
+                    <Button variant="outline" onClick={() => loadAll({})} disabled={refreshing}>
+                        <RefreshCw size={15} className={cn('mr-2', refreshing && 'animate-spin')} />
                         {refreshing ? 'Refreshing…' : 'Refresh'}
-                    </button>
-                </div>
-
-
+                    </Button>
+                </PageHeader>
 
                 {/* ── Tabs ── */}
-                <div className="analytics-tabs">
+                <div className="flex border-b overflow-x-auto">
                     {TABS.map(t => (
                         <button
                             key={t.key}
-                            className={`analytics-tab ${activeTab === t.key ? 'active' : ''}`}
                             onClick={() => setActiveTab(t.key)}
+                            className={cn(
+                                'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px whitespace-nowrap',
+                                activeTab === t.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-muted-foreground hover:text-foreground'
+                            )}
                         >
                             {t.icon}
                             {t.label}
-                            {t.key === 'alerts' && (num(alerts?.warrantyExpiring) + num(alerts?.lowStockItems) + num(alerts?.expiredLicenses) + num(alerts?.overdueReturns)) > 0 && (
-                                <span className="tab-badge">
-                                    {num(alerts?.warrantyExpiring) + num(alerts?.lowStockItems) + num(alerts?.expiredLicenses) + num(alerts?.overdueReturns)}
-                                </span>
+                            {t.key === 'alerts' && totalAlertsCount > 0 && (
+                                <span className="tab-badge">{totalAlertsCount}</span>
                             )}
                         </button>
                     ))}
@@ -696,19 +732,10 @@ const AnalyticsDashboard: React.FC = () => {
 };
 
 /* ══════════════════════ SCOPED CSS ══════════════════════ */
+/* Kept only for elements with dynamic/semantic coloring (progress fills, alert
+   severities, activity icon backgrounds, trend badges, live-dot pulse, mini-bar,
+   compliance badge) that don't map cleanly onto static design-system tokens. */
 const CSS = `
-/* Root */
-.analytics-root {
-    min-height: 100vh;
-    background: #f8fafc;
-    font-family: Inter, system-ui, sans-serif;
-    padding: 28px 32px;
-    max-width: 1440px;
-    margin: 0 auto;
-    transition: opacity .25s;
-}
-.analytics-refreshing { opacity: .65; pointer-events: none; }
-
 /* Loading */
 .analytics-loading {
     min-height: 60vh;
@@ -717,142 +744,12 @@ const CSS = `
     align-items: center;
     justify-content: center;
     gap: 12px;
-    color: #6b7280;
     font-size: 14px;
-    font-family: Inter,sans-serif;
 }
 .animate-spin { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* Header */
-.analytics-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    margin-bottom: 20px;
-}
-.analytics-title {
-    font-size: 20px;
-    font-weight: 800;
-    color: #0f172a;
-    margin: 0;
-    letter-spacing: -.3px;
-}
-.analytics-subtitle {
-    font-size: 13px;
-    color: #94a3b8;
-    margin: 4px 0 0;
-}
-.analytics-refresh-btn {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    font-weight: 600;
-    color: #374151;
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 9px;
-    padding: 8px 14px;
-    cursor: pointer;
-    transition: all .15s;
-}
-.analytics-refresh-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
-.analytics-refresh-btn:disabled { opacity: .5; cursor: not-allowed; }
-.spin { animation: spin .7s linear infinite; color: #2563eb; }
-
-/* Filters */
-.analytics-filters {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 20px;
-}
-.analytics-filter-group-label {
-    font-size: 11px;
-    font-weight: 700;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: .06em;
-    margin-right: 4px;
-}
-.analytics-filter-wrap {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 9px;
-    padding: 6px 10px 6px 12px;
-    min-width: 140px;
-    transition: border-color .15s;
-}
-.analytics-filter-wrap:hover { border-color: #2563eb44; }
-.analytics-filter-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: #94a3b8;
-    white-space: nowrap;
-}
-.analytics-filter-select {
-    flex: 1;
-    background: transparent;
-    border: none;
-    outline: none;
-    font-size: 13px;
-    font-weight: 600;
-    color: #1e293b;
-    cursor: pointer;
-    appearance: none;
-    font-family: inherit;
-}
-.analytics-filter-chevron { color: #94a3b8; flex-shrink: 0; }
-.analytics-clear-btn {
-    font-size: 12px;
-    font-weight: 700;
-    color: #ef4444;
-    background: #fef2f2;
-    border: 1px solid #fecaca;
-    border-radius: 8px;
-    padding: 6px 12px;
-    cursor: pointer;
-    transition: all .15s;
-}
-.analytics-clear-btn:hover { background: #fee2e2; }
-
-/* Tabs */
-.analytics-tabs {
-    display: flex;
-    gap: 4px;
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    padding: 5px;
-    margin-bottom: 24px;
-    overflow-x: auto;
-    scrollbar-width: none;
-}
-.analytics-tabs::-webkit-scrollbar { display: none; }
-.analytics-tab {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 16px;
-    border-radius: 8px;
-    border: none;
-    background: transparent;
-    font-size: 13px;
-    font-weight: 600;
-    color: #64748b;
-    cursor: pointer;
-    white-space: nowrap;
-    transition: all .18s;
-    position: relative;
-}
-.analytics-tab:hover { background: #f1f5f9; color: #1e293b; }
-.analytics-tab.active { background: #2563eb; color: #fff; }
+/* Tab badge */
 .tab-badge {
     background: #ef4444;
     color: #fff;
@@ -866,7 +763,6 @@ const CSS = `
 }
 
 /* Content */
-.analytics-content { }
 .analytics-panel { display: flex; flex-direction: column; gap: 20px; }
 
 /* KPI grid */
@@ -884,17 +780,6 @@ const CSS = `
 @media (max-width: 768px)  { .analytics-kpi-grid, .analytics-kpi-grid-4 { grid-template-columns: repeat(2, 1fr); } }
 
 /* KPI card */
-.analytics-kpi-card {
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 14px;
-    padding: 18px 18px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    transition: box-shadow .2s, border-color .2s;
-}
-.analytics-kpi-card:hover { box-shadow: 0 4px 16px #0001; border-color: #cbd5e1; }
 .analytics-kpi-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .analytics-kpi-icon {
     width: 38px; height: 38px;
@@ -909,12 +794,12 @@ const CSS = `
 .trend-up { background: #ecfdf5; color: #059669; }
 .trend-down { background: #fef2f2; color: #dc2626; }
 .analytics-kpi-value {
-    font-size: 26px; font-weight: 800; color: #0f172a;
+    font-size: 26px; font-weight: 800;
     font-variant-numeric: tabular-nums; line-height: 1.1;
     margin: 0;
 }
-.analytics-kpi-label { font-size: 12px; font-weight: 600; color: #64748b; margin: 0; }
-.analytics-kpi-sub  { font-size: 11px; color: #94a3b8; margin: 0; }
+.analytics-kpi-label { font-size: 12px; font-weight: 600; margin: 0; }
+.analytics-kpi-sub  { font-size: 11px; margin: 0; }
 
 /* Charts row */
 .analytics-charts-row {
@@ -924,26 +809,13 @@ const CSS = `
 }
 @media (max-width: 960px) { .analytics-charts-row { grid-template-columns: 1fr; } }
 
-/* Chart card */
-.analytics-chart-card {
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 14px;
-    padding: 20px 22px;
-    transition: box-shadow .2s;
-}
-.analytics-chart-card:hover { box-shadow: 0 2px 12px #0001; }
-.analytics-chart-card.col-2 { grid-column: span 1; }
-.analytics-chart-card.col-3 { grid-column: span 1; }
-.analytics-chart-card.col-5 { grid-column: span 1; }
-
 /* Section head */
 .analytics-section-head {
     display: flex; align-items: center; justify-content: space-between;
     margin-bottom: 14px;
 }
-.analytics-section-title { font-size: 13px; font-weight: 700; color: #1e293b; }
-.analytics-section-note  { font-size: 11px; color: #94a3b8; }
+.analytics-section-title { font-size: 13px; font-weight: 700; }
+.analytics-section-note  { font-size: 11px; }
 .analytics-live-dot {
     display: flex; align-items: center; gap: 5px;
     font-size: 11px; font-weight: 600; color: #16a34a;
@@ -995,33 +867,13 @@ const CSS = `
 .activity-icon.delete { background: #fef2f2; color: #dc2626; }
 .activity-icon.update { background: #eff6ff; color: #2563eb; }
 .activity-body { flex: 1; min-width: 0; }
-.activity-action { font-size: 13px; font-weight: 600; color: #1e293b; margin: 0; }
-.activity-entity { font-size: 11px; color: #94a3b8; margin: 2px 0 0; }
+.activity-action { font-size: 13px; font-weight: 600; margin: 0; }
+.activity-entity { font-size: 11px; margin: 2px 0 0; }
 .activity-time { text-align: right; flex-shrink: 0; }
-.activity-time p { font-size: 11px; color: #64748b; margin: 0; font-weight: 500; }
+.activity-time p { font-size: 11px; margin: 0; font-weight: 500; }
 .activity-time p:first-child { font-weight: 600; }
 
-/* Table */
-.analytics-table-wrap { overflow-x: auto; }
-.analytics-table {
-    width: 100%; border-collapse: collapse; font-size: 13px;
-}
-.analytics-table th {
-    text-align: left; padding: 10px 12px;
-    font-size: 11px; font-weight: 700; color: #94a3b8;
-    text-transform: uppercase; letter-spacing: .05em;
-    border-bottom: 1px solid #f1f5f9;
-}
-.analytics-table td {
-    padding: 12px 12px; color: #374151; vertical-align: middle;
-    border-bottom: 1px solid #f8fafc;
-}
-.analytics-table tr:last-child td { border-bottom: none; }
-.analytics-table tr:hover td { background: #f8fafc; }
-.analytics-table .tabular-nums { font-variant-numeric: tabular-nums; }
-.analytics-table .font-semibold { font-weight: 700; color: #0f172a; }
-.analytics-table .text-gray { color: #94a3b8; }
-.analytics-table .w-40 { width: 140px; }
+/* Table helpers */
 .status-dot {
     display: inline-block; width: 8px; height: 8px;
     border-radius: 50%; margin-right: 8px;

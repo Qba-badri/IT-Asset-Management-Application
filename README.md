@@ -75,8 +75,7 @@ A comprehensive, enterprise-grade IT Asset Management system built with NestJS a
    npm install
    cp .env.example .env
    # Edit .env with your database credentials and JWT secret
-   npm run seed:permissions
-   npm run seed:masters
+   npm run seed
    npm run start:dev
    ```
 
@@ -201,8 +200,7 @@ npm run build             # Production build
 ### Database Seeding
 ```bash
 cd backend
-npm run seed:permissions  # Seed permissions and roles
-npm run seed:masters      # Seed master data (brands, vendors, etc.)
+npm run seed              # Seeds foundational Admin master data (Roles, Permissions, Lookups, etc.)
 ```
 
 ---
@@ -242,12 +240,21 @@ See [Complete Documentation](docs/COMPLETE_DOCUMENTATION.md#deployment) for Dock
 
 ## 📊 Default Users & Roles
 
-### Seeded Users (Development)
+### Seeded Roles
+The system seeds the following standard roles with mapped permissions:
+- **Admin**: Full system access and configuration
+- **IT**: IT Department usage for asset and inventory management
+- **IT Helpdesk**: Manage assets, inventory, and regular users
+- **Manager**: Department or Location Manager
+- **Auditor**: Read-only access for compliance and audits
+- **Standard User**: Regular employee with self-service access
+
+### Seeded Users (Development/UAT)
 | Email | Password | Role | Permissions |
 |-------|----------|------|-------------|
 | admin@qbadvisory.com | password123 | Admin | Full access |
-| john.doe@qbadvisory.com | password123 | Manager | Assets, Licenses, Inventory |
-| mike.johnson@qbadvisory.com | password123 | Employee | View only |
+
+*(Note: Additional users must be created through the Admin interface after first login)*
 
 **⚠️ IMPORTANT:** Change these credentials in production!
 

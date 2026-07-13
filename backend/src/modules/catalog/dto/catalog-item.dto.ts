@@ -60,6 +60,10 @@ export class CreateCatalogItemDto {
   @IsNumber()
   @Min(0)
   unitCost?: number;
+
+  @IsOptional()
+  @IsString()
+  currency?: string;
 }
 
 export class UpdateCatalogItemDto {
@@ -104,6 +108,10 @@ export class UpdateCatalogItemDto {
   @IsNumber()
   @Min(0)
   unitCost?: number;
+
+  @IsOptional()
+  @IsString()
+  currency?: string;
 
   @IsOptional()
   @IsBoolean()

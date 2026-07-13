@@ -11,10 +11,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../..
 import { Badge } from "../../components/ui/badge";
 import { inventoryService, InventoryPurchase } from "../../services/consumableInventoryService";
 import { useToast } from "../../context/ToastContext";
+import { useCurrency } from "../../context/CurrencyContext";
 import { ShoppingCart, ExternalLink } from "lucide-react";
 
 export default function InventoryPurchases() {
     const { showToast } = useToast();
+    const { formatCost } = useCurrency();
     const [purchases, setPurchases] = useState<InventoryPurchase[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -59,7 +61,8 @@ export default function InventoryPurchases() {
                             <TableHead>Date</TableHead>
                             <TableHead>Vendor</TableHead>
                             <TableHead>Item</TableHead>
-                            <TableHead className="text-right">Qty</TableHead>
+                            <TableHead className="text-right">Qty (units)</TableHead>
+                            <TableHead className="text-right">Packs</TableHead>
                             <TableHead className="text-right">Unit Cost</TableHead>
                             <TableHead className="text-right">Total</TableHead>
                             <TableHead>Invoice</TableHead>
@@ -68,11 +71,11 @@ export default function InventoryPurchases() {
                     <TableBody>
                         {loading ? (
                             <TableRow>
-                                <TableCell colSpan={7} className="text-center py-10">Loading purchases...</TableCell>
+                                <TableCell colSpan={8} className="text-center py-10">Loading purchases...</TableCell>
                             </TableRow>
                         ) : purchases.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={7} className="text-center py-10">No purchases found.</TableCell>
+                                <TableCell colSpan={8} className="text-center py-10">No purchases found.</TableCell>
                             </TableRow>
                         ) : (
                             purchases.map((p) => (
@@ -83,8 +86,11 @@ export default function InventoryPurchases() {
                                     <TableCell className="font-medium">{p.vendorName}</TableCell>
                                     <TableCell>{p.item?.name}</TableCell>
                                     <TableCell className="text-right">{p.quantity}</TableCell>
-                                    <TableCell className="text-right">${p.unitCost.toFixed(2)}</TableCell>
-                                    <TableCell className="text-right font-semibold">${p.totalCost.toFixed(2)}</TableCell>
+                                    <TableCell className="text-right text-muted-foreground">
+                                        {p.packQuantity ? `${p.packQuantity} × ${p.unitsPerPack}` : '—'}
+                                    </TableCell>
+                                    <TableCell className="text-right">{formatCost(p.unitCost, p.currency)}</TableCell>
+                                    <TableCell className="text-right font-semibold">{formatCost(p.totalCost, p.currency)}</TableCell>
                                     <TableCell className="text-xs">
                                         {p.invoiceNumber ? (
                                             <span className="flex items-center gap-1 text-muted-foreground">

@@ -17,17 +17,16 @@ import {
   Menu,
   X,
   Loader2,
-  ShoppingCart,
-  Database,
   Factory,
   Building2,
   ClipboardList,
   Activity,
   Archive,
-  Trash2
+  FileSearch,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { authService } from "../../services/authService";
+import { useAuth } from "../../hooks/useAuth";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
@@ -44,12 +43,15 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../ui/tooltip";
-import { ChatWidget } from "../Bot/ChatWidget";
+
+// ─── Nav type definitions ────────────────────────────────────────────────────
 
 interface NavItem {
   label: string;
   icon: React.ElementType;
   path: string;
+  /** Backend permission slug required to see this item. Omit = always visible. */
+  requiredPermission?: string;
 }
 
 interface NavGroup {
@@ -64,56 +66,57 @@ function isNavGroup(item: NavEntry): item is NavGroup {
   return "children" in item;
 }
 
+// ─── Navigation definition (permission-slug gated) ───────────────────────────
+// Each item's `requiredPermission` must match a slug in the user's permissions[].
+// This mirrors the backend @Permissions() decorator exactly.
+
 const navigation: NavEntry[] = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
-  { label: "Assets", icon: Monitor, path: "/dashboard/assets" },
-  { label: "Licenses", icon: KeyRound, path: "/dashboard/licenses" },
-  { label: "Inventory", icon: Archive, path: "/dashboard/inventory" },
-  { label: "Analytics", icon: BarChart3, path: "/dashboard/analytics" },
+  { label: "Assets",    icon: Monitor,         path: "/dashboard/assets",    requiredPermission: "assets.view" },
+  { label: "Licenses",  icon: KeyRound,        path: "/dashboard/licenses",  requiredPermission: "licenses.view" },
+  { label: "Inventory", icon: Archive,         path: "/dashboard/inventory", requiredPermission: "inventory.view" },
+  { label: "Analytics", icon: BarChart3,       path: "/dashboard/analytics", requiredPermission: "reports.view" },
+  { label: "Audit Report", icon: FileSearch,   path: "/dashboard/audit-report", requiredPermission: "reports.view" },
   {
     label: "Admin",
     icon: Settings,
     children: [
-      { label: "Users", icon: Users, path: "/dashboard/admin/users" },
-      { label: "Roles", icon: Shield, path: "/dashboard/admin/roles" },
-      { label: "Permissions", icon: Lock, path: "/dashboard/admin/permissions" },
-      { label: "Asset Categories", icon: Tag, path: "/dashboard/admin/categories" },
-      { label: "Inventory Categories", icon: Package, path: "/dashboard/admin/inventory-categories" },
-      { label: "Brands", icon: Factory, path: "/dashboard/admin/brands" },
-      { label: "Vendors", icon: Building2, path: "/dashboard/admin/vendors" },
-      { label: "License Plans", icon: KeyRound, path: "/dashboard/admin/plans" },
-      { label: "Conditions", icon: ClipboardList, path: "/dashboard/admin/conditions" },
-      { label: "Statuses", icon: Activity, path: "/dashboard/admin/statuses" },
-      { label: "Disposal Methods", icon: Archive, path: "/dashboard/admin/disposal-methods" },
-      { label: "System Settings", icon: Settings, path: "/dashboard/admin/settings" },
+      { label: "Users",                icon: Users,         path: "/dashboard/admin/users",                requiredPermission: "users.view" },
+      { label: "Roles",                icon: Shield,        path: "/dashboard/admin/roles",                requiredPermission: "roles.view" },
+      { label: "Permissions",          icon: Lock,          path: "/dashboard/admin/permissions",          requiredPermission: "roles.view" },
+      { label: "Asset Categories",     icon: Tag,           path: "/dashboard/admin/categories",           requiredPermission: "categories.manage" },
+      { label: "Inventory Categories", icon: Package,       path: "/dashboard/admin/inventory-categories", requiredPermission: "categories.manage" },
+      { label: "Brands",               icon: Factory,       path: "/dashboard/admin/brands",               requiredPermission: "brands.manage" },
+      { label: "Vendors",              icon: Building2,     path: "/dashboard/admin/vendors",              requiredPermission: "vendors.manage" },
+      { label: "License Plans",        icon: KeyRound,      path: "/dashboard/admin/plans",                requiredPermission: "licenses.manage" },
+      { label: "Conditions",           icon: ClipboardList, path: "/dashboard/admin/conditions",           requiredPermission: "assets.manage" },
+      { label: "Statuses",             icon: Activity,      path: "/dashboard/admin/statuses",             requiredPermission: "assets.manage" },
+      { label: "Disposal Methods",     icon: Archive,       path: "/dashboard/admin/disposal-methods",     requiredPermission: "assets.manage" },
+      { label: "System Settings",      icon: Settings,      path: "/dashboard/admin/settings",             requiredPermission: "settings.manage" },
     ],
   },
 ];
 
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export default function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [collapsed, setCollapsed] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
+  // useAuth reads permission slugs from localStorage — synced with the backend PermissionsGuard
+  const { hasPermission, roleName } = useAuth();
+
+  const [collapsed,      setCollapsed]      = useState(false);
+  const [mobileOpen,     setMobileOpen]     = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>(["Admin"]);
-  const [user, setUser] = useState<any>(null);
-  const [loadingUser, setLoadingUser] = useState(true);
+  const [profile,        setProfile]        = useState<any>(null);
+  const [loadingUser,    setLoadingUser]    = useState(true);
 
   useEffect(() => {
-    loadUser();
+    authService.getProfile()
+      .then(setProfile)
+      .catch((err) => console.error("Failed to load user profile", err))
+      .finally(() => setLoadingUser(false));
   }, []);
-
-  const loadUser = async () => {
-    try {
-      setLoadingUser(true);
-      const data = await authService.getProfile();
-      setUser(data);
-    } catch (error) {
-      console.error("Failed to load user profile", error);
-    } finally {
-      setLoadingUser(false);
-    }
-  };
 
   const handleLogout = async () => {
     await authService.logout();
@@ -131,6 +134,26 @@ export default function AppShell() {
     );
   };
 
+  // ── Permission-based nav filtering ──────────────────────────────────────────
+  /** Is a flat nav item visible to this user? */
+  const isItemVisible = (item: NavItem): boolean =>
+    !item.requiredPermission || hasPermission(item.requiredPermission);
+
+  /** Build the filtered nav list — keeps only items the user can access. */
+  const filteredNav: NavEntry[] = navigation.reduce<NavEntry[]>((acc, entry) => {
+    if (isNavGroup(entry)) {
+      const visibleChildren = entry.children.filter(isItemVisible);
+      // Only show the Admin group if at least one child is accessible
+      if (visibleChildren.length > 0) {
+        acc.push({ ...entry, children: visibleChildren });
+      }
+    } else if (isItemVisible(entry)) {
+      acc.push(entry);
+    }
+    return acc;
+  }, []);
+
+  // ── Sidebar ──────────────────────────────────────────────────────────────────
   const sidebarContent = (
     <div className="flex h-full flex-col">
       {/* Logo */}
@@ -149,11 +172,11 @@ export default function AppShell() {
       {/* Navigation */}
       <ScrollArea className="flex-1 px-3 py-4">
         <nav className="flex flex-col gap-1">
-          {navigation.map((item) =>
+          {filteredNav.map((item) =>
             isNavGroup(item) ? (
               <div key={item.label}>
                 {collapsed ? (
-                  // Show only child icons in collapsed mode
+                  // Collapsed sidebar: show only child icons
                   item.children.map((child) => (
                     <TooltipProvider key={child.path} delayDuration={0}>
                       <Tooltip>
@@ -268,7 +291,7 @@ export default function AppShell() {
         />
       )}
 
-      {/* Sidebar - Mobile */}
+      {/* Sidebar — Mobile */}
       <aside
         className={cn(
           "fixed inset-y-0 left-0 z-50 w-64 transform border-r bg-sidebar transition-transform duration-200 lg:hidden",
@@ -283,7 +306,7 @@ export default function AppShell() {
         {sidebarContent}
       </aside>
 
-      {/* Sidebar - Desktop */}
+      {/* Sidebar — Desktop */}
       <aside
         className={cn(
           "hidden lg:flex lg:flex-col border-r bg-sidebar transition-all duration-200",
@@ -321,16 +344,17 @@ export default function AppShell() {
                     {loadingUser ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
                     ) : (
-                      `${user?.firstName?.[0] || 'A'}${user?.lastName?.[0] || 'U'}`
+                      `${profile?.firstName?.[0] ?? '?'}${profile?.lastName?.[0] ?? ''}`
                     )}
                   </AvatarFallback>
                 </Avatar>
                 <div className="hidden md:flex flex-col items-start text-left">
                   <span className="text-sm font-medium">
-                    {loadingUser ? "Loading..." : `${user?.firstName} ${user?.lastName}`}
+                    {loadingUser ? "Loading..." : `${profile?.firstName ?? ''} ${profile?.lastName ?? ''}`.trim()}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    {loadingUser ? "Please wait" : (user?.role?.name || "Administrator")}
+                    {/* Live profile role name when loaded; fall back to localStorage roleName */}
+                    {loadingUser ? "Please wait" : (profile?.role?.name ?? roleName ?? "User")}
                   </span>
                 </div>
                 <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -359,9 +383,6 @@ export default function AppShell() {
           </div>
         </main>
       </div>
-      
-      {/* Bot Chat Widget */}
-      <ChatWidget />
     </div>
   );
 }

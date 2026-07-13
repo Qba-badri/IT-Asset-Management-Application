@@ -21,6 +21,7 @@ import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { Avatar, AvatarFallback } from '../../components/ui/avatar';
 import { Pagination } from '../../components/shared/Pagination';
 import UserProfileView from './UserProfileView';
+import ActivityLogsTab from './ActivityLogsTab';
 
 const UserManagement: React.FC = () => {
     const { showToast } = useToast();
@@ -39,6 +40,22 @@ const UserManagement: React.FC = () => {
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [viewingProfileId, setViewingProfileId] = useState<number | null>(null);
     const [userInventory, setUserInventory] = useState<any>(null);
+    // Tracks which user row is currently having its role updated
+    const [updatingRoleFor, setUpdatingRoleFor] = useState<number | null>(null);
+
+    // Derive current user's role from localStorage to gate the inline dropdown
+    const currentUserRole: string = React.useMemo(() => {
+        try {
+            const stored = localStorage.getItem('user');
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                return parsed?.role?.name || '';
+            }
+        } catch {
+            // ignore parse errors
+        }
+        return '';
+    }, []);
 
     const {
         values: formData,
@@ -65,8 +82,24 @@ const UserManagement: React.FC = () => {
     useEffect(() => { loadData(); }, []);
 
     const loadData = async () => {
-        try { setLoading(true); const [u, r] = await Promise.all([userService.getUsers(), rbacService.getRoles()]); setUsers(u); setRoles(r); }
-        catch { } finally { setLoading(false); }
+        setLoading(true);
+        try {
+            const u = await userService.getUsers();
+            setUsers(u);
+        } catch (error) {
+            console.error('Failed to load users:', error);
+            showToast('Failed to load users', 'error');
+        }
+        
+        try {
+            const r = await rbacService.getRoles();
+            setRoles(r);
+        } catch (error) {
+            console.error('Failed to load roles:', error);
+            // Non-critical, just log it. We might not have 'roles.view' permission.
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleSyncAzure = async () => {
@@ -123,6 +156,25 @@ const UserManagement: React.FC = () => {
     const handleDeleteUser = async (id: number) => {
         if (!window.confirm('Are you sure you want to delete this user?')) return;
         try { await userService.deleteUser(id); loadData(); } catch { }
+    };
+
+    /** Inline role change — no password required, admin-only action */
+    const handleRoleChange = async (userId: number, newRoleId: string) => {
+        setUpdatingRoleFor(userId);
+        try {
+            await userService.updateUser(userId, { roleId: Number(newRoleId) });
+            showToast('Role updated successfully', 'success');
+            // Update local state immediately for snappy UI
+            setUsers(prev => prev.map(u =>
+                u.id === userId
+                    ? { ...u, role: roles.find(r => r.id === Number(newRoleId)) || u.role }
+                    : u
+            ));
+        } catch (error: any) {
+            showToast(error.response?.data?.message || 'Failed to update role', 'error');
+        } finally {
+            setUpdatingRoleFor(null);
+        }
     };
 
     const getRoleBadgeVariant = (roleName: string): any => {
@@ -186,7 +238,35 @@ const UserManagement: React.FC = () => {
                                         <TableRow key={user.id}>
                                             <TableCell><div className="flex items-center gap-3"><Avatar className="h-8 w-8"><AvatarFallback className="text-xs bg-primary/10 text-primary">{user.firstName?.[0]}{user.lastName?.[0]}</AvatarFallback></Avatar><span className="font-medium">{user.firstName} {user.lastName}</span></div></TableCell>
                                             <TableCell className="text-sm text-muted-foreground">{user.email}</TableCell>
-                                            <TableCell><Badge variant={getRoleBadgeVariant(user.role?.name || 'User')}>{user.role?.name || 'User'}</Badge></TableCell>
+                                            <TableCell>
+                                                {currentUserRole === 'Admin' ? (
+                                                    <div className="relative inline-flex items-center gap-1.5">
+                                                        {updatingRoleFor === user.id && (
+                                                            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary absolute -left-5" />
+                                                        )}
+                                                        <select
+                                                            id={`role-select-${user.id}`}
+                                                            className="h-7 rounded-md border border-input bg-background px-2 py-0 text-xs font-medium shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                                            value={user.role?.id?.toString() || ''}
+                                                            disabled={updatingRoleFor === user.id}
+                                                            onChange={e => handleRoleChange(user.id, e.target.value)}
+                                                        >
+                                                            {roles.length === 0 && (
+                                                                <option value={user.role?.id?.toString() || ''}>
+                                                                    {user.role?.name || 'Unknown'}
+                                                                </option>
+                                                            )}
+                                                            {roles.map(role => (
+                                                                <option key={role.id} value={role.id}>{role.name}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                ) : (
+                                                    <Badge variant={getRoleBadgeVariant(user.role?.name || 'User')}>
+                                                        {user.role?.name || 'User'}
+                                                    </Badge>
+                                                )}
+                                            </TableCell>
                                             <TableCell><Button variant="ghost" size="sm" className="text-primary hover:text-primary hover:bg-primary/5 gap-1.5" onClick={() => handleViewProfile(user)}><Eye className="h-4 w-4" />View Profile</Button></TableCell>
                                             <TableCell>
                                                 <Badge variant={user.isActive ? "success" : "destructive"}>
@@ -216,7 +296,7 @@ const UserManagement: React.FC = () => {
                     )}
 
                     {activeTab === 'activity' && (
-                        <div className="p-8 text-center text-muted-foreground">Activity logging implementation in progress...</div>
+                        <ActivityLogsTab />
                     )}
                 </CardContent>
             </Card>

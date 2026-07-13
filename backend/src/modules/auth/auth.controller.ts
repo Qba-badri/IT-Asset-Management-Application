@@ -47,26 +47,27 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Get('profile')
   async getProfile(@Request() req) {
-    return this.authService.getProfile(req.user.userId);
+    // JwtStrategy sets req.user.id (not userId)
+    return this.authService.getProfile(req.user.id);
   }
 
   @UseGuards(JwtAuthGuard)
   @Put('profile')
   async updateProfile(@Request() req, @Body() updateDto: any) {
-    return this.authService.updateProfile(req.user.userId, updateDto);
+    return this.authService.updateProfile(req.user.id, updateDto);
   }
 
   @UseGuards(JwtAuthGuard)
   @Post('logout-others')
   @HttpCode(HttpStatus.OK)
   async logoutOthers(@Request() req) {
-    return this.authService.logoutOthers(req.user.userId);
+    return this.authService.logoutOthers(req.user.id);
   }
 
   @UseGuards(JwtAuthGuard)
   @Post('change-password')
   @HttpCode(HttpStatus.OK)
   async changePassword(@Request() req, @Body() changeDto: any) {
-    return this.authService.changePassword(req.user.userId, changeDto);
+    return this.authService.changePassword(req.user.id, changeDto);
   }
 }

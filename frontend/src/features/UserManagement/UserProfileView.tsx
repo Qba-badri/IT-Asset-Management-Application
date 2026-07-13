@@ -297,7 +297,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ userId, onClose }) =>
 
                 <TabsContent value="activity" className="mt-4">
                     <Card>
-                        <CardContent className="p-8 text-center flex flex-col items-center justify-center gap-3">
+                        <CardContent className="py-12 text-center flex flex-col items-center justify-center gap-3">
                             <History className="h-10 w-10 text-muted-foreground opacity-20" />
                             <div>
                                 <h4 className="font-medium">No Activity History</h4>

@@ -8,6 +8,7 @@ import { inventoryService, InventoryItem, InventoryCategory, InventoryPurchase, 
 import { userService, User } from '../../services/userService';
 import { masterService, Vendor, Lookup } from '../../services/masterService';
 import { useToast } from '../../context/ToastContext';
+import { useCurrency } from '../../context/CurrencyContext';
 import ConfirmModal from '../../components/Common/ConfirmModal';
 import ActionDropdown from '../../components/Common/ActionDropdown';
 import { PageHeader } from '../../components/shared/PageHeader';
@@ -25,6 +26,7 @@ import { Pagination } from '../../components/shared/Pagination';
 
 const InventoryManagement: React.FC = () => {
     const navigate = useNavigate();
+    const { formatCost } = useCurrency();
     const [items, setItems] = useState<InventoryItem[]>([]);
     const [categories, setCategories] = useState<InventoryCategory[]>([]);
     const [purchases, setPurchases] = useState<InventoryPurchase[]>([]);
@@ -66,13 +68,17 @@ const InventoryManagement: React.FC = () => {
         name: '',
         categoryId: 0,
         isRefundable: false,
-        minStockLevel: 10
+        minStockLevel: 10,
+        unitsPerPack: 1,
+        packQuantity: 0
     });
 
     const [newPurchase, setNewPurchase] = useState({
         itemId: 0,
         vendorName: '',
         quantity: 0,
+        packQuantity: 0,
+        unitsPerPack: 1,
         unitCost: 0,
         currency: 'USD',
         invoiceNumber: '',
@@ -197,7 +203,9 @@ const InventoryManagement: React.FC = () => {
                 name: '',
                 categoryId: 0,
                 isRefundable: false,
-                minStockLevel: 10
+                minStockLevel: 10,
+                unitsPerPack: 1,
+                packQuantity: 0
             });
             setEditingItem(null);
             loadData();
@@ -218,7 +226,16 @@ const InventoryManagement: React.FC = () => {
             showToast("Please enter a vendor name", "error");
             return;
         }
-        if (!newPurchase.quantity || newPurchase.quantity <= 0) {
+        const purchaseUnitsPerPack = newPurchase.unitsPerPack || 1;
+        const totalUnits = purchaseUnitsPerPack > 1
+            ? newPurchase.packQuantity * purchaseUnitsPerPack
+            : newPurchase.quantity;
+        if (purchaseUnitsPerPack > 1) {
+            if (!newPurchase.packQuantity || newPurchase.packQuantity <= 0) {
+                showToast("Please enter a valid pack quantity", "error");
+                return;
+            }
+        } else if (!newPurchase.quantity || newPurchase.quantity <= 0) {
             showToast("Please enter a valid quantity", "error");
             return;
         }
@@ -230,13 +247,20 @@ const InventoryManagement: React.FC = () => {
 
         try {
             setSubmitting(true);
-            await inventoryService.createPurchase(newPurchase);
+            await inventoryService.createPurchase({
+                ...newPurchase,
+                quantity: totalUnits,
+                packQuantity: purchaseUnitsPerPack > 1 ? newPurchase.packQuantity : undefined,
+                unitsPerPack: purchaseUnitsPerPack,
+            });
             showToast('Purchase recorded successfully', 'success');
             setShowPurchaseFormModal(false);
             setNewPurchase({
                 itemId: 0,
                 vendorName: '',
                 quantity: 0,
+                packQuantity: 0,
+                unitsPerPack: 1,
                 unitCost: 0,
                 currency: 'USD',
                 invoiceNumber: '',
@@ -292,11 +316,14 @@ const InventoryManagement: React.FC = () => {
 
     const handleEditItem = (item: InventoryItem) => {
         setEditingItem(item);
+        const upp = item.unitsPerPack || 1;
         setNewItem({
             name: item.name,
             categoryId: item.categoryId,
             isRefundable: item.isRefundable,
-            minStockLevel: item.minStockLevel
+            minStockLevel: item.minStockLevel,
+            unitsPerPack: upp,
+            packQuantity: Math.floor(item.totalStock / upp)
         });
         setShowItemFormModal(true);
     };
@@ -449,6 +476,13 @@ const InventoryManagement: React.FC = () => {
         return <Badge variant="success">In Stock</Badge>;
     };
 
+    const formatUnits = (units: number, unitsPerPack: number) => {
+        if (!unitsPerPack || unitsPerPack <= 1) return `${units} units`;
+        const packs = Math.floor(units / unitsPerPack);
+        const remainder = units % unitsPerPack;
+        return `${units} units (${packs} packs${remainder ? ` + ${remainder} loose` : ''})`;
+    };
+
     if (loading) return <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
 
     return (
@@ -465,7 +499,7 @@ const InventoryManagement: React.FC = () => {
                     )}
                     {activeTab === 'purchases' && (
                         <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => {
-                            setNewPurchase({ itemId: 0, vendorName: '', quantity: 1, unitCost: 0, currency: 'USD', invoiceNumber: '', purchaseDate: new Date().toISOString().split('T')[0], invoiceAttachment: '' });
+                            setNewPurchase({ itemId: 0, vendorName: '', quantity: 1, packQuantity: 0, unitsPerPack: 1, unitCost: 0, currency: 'USD', invoiceNumber: '', purchaseDate: new Date().toISOString().split('T')[0], invoiceAttachment: '' });
                             setShowPurchaseFormModal(true);
                         }}>
                             <ShoppingCart className="h-4 w-4 mr-2" /> Record Purchase
@@ -633,10 +667,10 @@ const InventoryManagement: React.FC = () => {
                                                     </TableCell>
                                                     <TableCell>
                                                         <div className={`text-sm font-medium ${item.availableStock <= item.minStockLevel ? 'text-destructive' : ''}`}>
-                                                            {item.availableStock}
+                                                            {formatUnits(item.availableStock, item.unitsPerPack)}
                                                         </div>
                                                     </TableCell>
-                                                    <TableCell className="text-sm">{item.totalStock}</TableCell>
+                                                    <TableCell className="text-sm">{formatUnits(item.totalStock, item.unitsPerPack)}</TableCell>
                                                     <TableCell>
                                                         <Badge variant={item.isRefundable ? "default" : "secondary"}>
                                                             {item.isRefundable ? "Yes" : "No"}
@@ -647,7 +681,7 @@ const InventoryManagement: React.FC = () => {
                                                         <ActionDropdown actions={[
                                                             { label: 'View Details', icon: <Eye className="h-4 w-4" />, onClick: () => handleViewDetails(item.id) },
                                                             { label: 'Edit Item', icon: <Edit className="h-4 w-4" />, onClick: () => handleEditItem(item) },
-                                                            { label: 'Record Purchase', icon: <ShoppingCart className="h-4 w-4" />, onClick: () => { setNewPurchase({ ...newPurchase, itemId: item.id }); setShowPurchaseFormModal(true); } },
+                                                            { label: 'Record Purchase', icon: <ShoppingCart className="h-4 w-4" />, onClick: () => { setNewPurchase({ ...newPurchase, itemId: item.id, unitsPerPack: item.unitsPerPack || 1 }); setShowPurchaseFormModal(true); } },
                                                             { label: 'Assign to User', icon: <UserPlus className="h-4 w-4" />, onClick: () => { setNewAssignment({ ...newAssignment, itemId: item.id }); setShowAssignmentFormModal(true); } },
                                                             { label: 'Delete Item', icon: <Trash2 className="h-4 w-4" />, onClick: () => handleDeleteClick(item), variant: 'danger' },
                                                         ]} />
@@ -700,12 +734,10 @@ const InventoryManagement: React.FC = () => {
                                                 <TableCell>{p.vendorName}</TableCell>
                                                 <TableCell className="text-right">{p.quantity}</TableCell>
                                                 <TableCell className="text-right">
-                                                    {p.currency === 'INR' ? '₹' : (p.currency === 'USD' ? '$' : (p.currency || '$'))}
-                                                    {Number(p.unitCost).toFixed(2)}
+                                                    {formatCost(Number(p.unitCost), p.currency)}
                                                 </TableCell>
                                                 <TableCell className="text-right font-semibold">
-                                                    {p.currency === 'INR' ? '₹' : (p.currency === 'USD' ? '$' : (p.currency || '$'))}
-                                                    {Number(p.totalCost).toFixed(2)}
+                                                    {formatCost(Number(p.totalCost), p.currency)}
                                                 </TableCell>
                                                 <TableCell className="text-xs">
                                                     <div className="flex items-center gap-2">
@@ -852,9 +884,22 @@ const InventoryManagement: React.FC = () => {
                                 ))}
                             </select>
                         </div>
-                        <div className="space-y-2">
-                            <Label>Minimum Stock Level</Label>
-                            <Input type="number" value={newItem.minStockLevel} onChange={e => setNewItem({ ...newItem, minStockLevel: parseInt(e.target.value) })} />
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label>Minimum Stock Level</Label>
+                                <Input type="number" value={newItem.minStockLevel} onChange={e => setNewItem({ ...newItem, minStockLevel: parseInt(e.target.value) })} />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Units per Pack</Label>
+                                <Input type="number" min={1} value={newItem.unitsPerPack} onChange={e => setNewItem({ ...newItem, unitsPerPack: parseInt(e.target.value) || 1 })} />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Number of Packs</Label>
+                                <Input type="number" min={0} value={newItem.packQuantity} onChange={e => setNewItem({ ...newItem, packQuantity: parseInt(e.target.value) || 0 })} />
+                            </div>
+                            <div className="col-span-2 text-sm text-muted-foreground">
+                                {newItem.packQuantity || 0} packs × {newItem.unitsPerPack || 1} = <span className="font-medium text-foreground">{(newItem.packQuantity || 0) * (newItem.unitsPerPack || 1)} units total stock</span>
+                            </div>
                         </div>
                         <div className="flex items-center space-x-2">
                             <input
@@ -875,7 +920,9 @@ const InventoryManagement: React.FC = () => {
                                 name: '',
                                 categoryId: 0,
                                 isRefundable: false,
-                                minStockLevel: 10
+                                minStockLevel: 10,
+                                unitsPerPack: 1,
+                                packQuantity: 0
                             });
                         }}>Cancel</Button>
                         <Button onClick={handleCreateItem} disabled={submitting}>
@@ -896,7 +943,11 @@ const InventoryManagement: React.FC = () => {
                             <select
                                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                                 value={newPurchase.itemId}
-                                onChange={e => setNewPurchase({ ...newPurchase, itemId: parseInt(e.target.value) })}
+                                onChange={e => {
+                                    const selectedId = parseInt(e.target.value);
+                                    const selected = items.find(i => i.id === selectedId);
+                                    setNewPurchase({ ...newPurchase, itemId: selectedId, unitsPerPack: selected?.unitsPerPack || 1 });
+                                }}
                             >
                                 <option value={0}>-- Select Item --</option>
                                 {items.map(item => (
@@ -917,11 +968,27 @@ const InventoryManagement: React.FC = () => {
                                 ))}
                             </select>
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
+                        {(newPurchase.unitsPerPack || 1) > 1 ? (
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label>Pack Quantity *</Label>
+                                    <Input type="number" min={1} value={newPurchase.packQuantity} onChange={e => setNewPurchase({ ...newPurchase, packQuantity: parseInt(e.target.value) || 0 })} />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Units per Pack</Label>
+                                    <Input type="number" min={1} value={newPurchase.unitsPerPack} onChange={e => setNewPurchase({ ...newPurchase, unitsPerPack: parseInt(e.target.value) || 1 })} />
+                                </div>
+                                <div className="col-span-2 text-sm text-muted-foreground">
+                                    {newPurchase.packQuantity || 0} packs × {newPurchase.unitsPerPack || 1} = <span className="font-medium text-foreground">{(newPurchase.packQuantity || 0) * (newPurchase.unitsPerPack || 1)} units</span>
+                                </div>
+                            </div>
+                        ) : (
                             <div className="space-y-2">
                                 <Label>Quantity *</Label>
                                 <Input type="number" value={newPurchase.quantity} onChange={e => setNewPurchase({ ...newPurchase, quantity: parseInt(e.target.value) })} />
                             </div>
+                        )}
+                        <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <Label>Unit Cost *</Label>
                                 <div className="flex gap-2">
@@ -1144,15 +1211,19 @@ const InventoryManagement: React.FC = () => {
                                             </div>
                                             <div className="space-y-1">
                                                 <Label className="text-muted-foreground text-xs uppercase">Available Stock</Label>
-                                                <p className="font-bold text-lg text-primary">{selectedItem.availableStock}</p>
+                                                <p className="font-bold text-lg text-primary">{formatUnits(selectedItem.availableStock, selectedItem.unitsPerPack)}</p>
                                             </div>
                                             <div className="space-y-1">
                                                 <Label className="text-muted-foreground text-xs uppercase">Total Stock</Label>
-                                                <p className="font-semibold text-base">{selectedItem.totalStock}</p>
+                                                <p className="font-semibold text-base">{formatUnits(selectedItem.totalStock, selectedItem.unitsPerPack)}</p>
                                             </div>
                                             <div className="space-y-1">
                                                 <Label className="text-muted-foreground text-xs uppercase">Min Stock Level</Label>
-                                                <p className="font-semibold text-base">{selectedItem.minStockLevel}</p>
+                                                <p className="font-semibold text-base">{selectedItem.minStockLevel} units</p>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-muted-foreground text-xs uppercase">Units per Pack</Label>
+                                                <p className="font-semibold text-base">{selectedItem.unitsPerPack || 1}</p>
                                             </div>
                                             <div className="space-y-1">
                                                 <Label className="text-muted-foreground text-xs uppercase">Status</Label>
@@ -1335,12 +1406,10 @@ const InventoryManagement: React.FC = () => {
                                                                     <TableCell className="text-sm">{purchase.invoiceNumber || '—'}</TableCell>
                                                                     <TableCell className="text-right font-medium">{purchase.quantity}</TableCell>
                                                                     <TableCell className="text-right">
-                                                                        <span className="text-xs text-muted-foreground mr-1">{purchase.currency}</span>
-                                                                        {purchase.unitCost.toLocaleString()}
+                                                                        {formatCost(purchase.unitCost, purchase.currency)}
                                                                     </TableCell>
                                                                     <TableCell className="text-right font-bold">
-                                                                        <span className="text-xs text-muted-foreground mr-1">{purchase.currency}</span>
-                                                                        {purchase.totalCost.toLocaleString()}
+                                                                        {formatCost(purchase.totalCost, purchase.currency)}
                                                                     </TableCell>
                                                                 </TableRow>
                                                             ))}

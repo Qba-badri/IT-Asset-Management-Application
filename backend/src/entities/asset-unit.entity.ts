@@ -78,6 +78,9 @@ export class AssetUnit {
   @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true })
   purchaseCost: number;
 
+  @Column({ name: 'currency', length: 3, default: 'INR' })
+  currency: string;
+
   @Column({ length: 200, nullable: true })
   vendor: string;
 

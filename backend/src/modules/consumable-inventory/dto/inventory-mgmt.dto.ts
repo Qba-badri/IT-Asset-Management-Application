@@ -27,6 +27,16 @@ export class CreateInventoryItemDto {
     minStockLevel?: number;
 
     @IsOptional()
+    @IsNumber()
+    @Min(1)
+    unitsPerPack?: number;
+
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    packQuantity?: number;
+
+    @IsOptional()
     @IsString()
     status?: string;
 }
@@ -48,6 +58,16 @@ export class CreateInventoryPurchaseDto {
     @IsNumber()
     @Min(1)
     quantity: number;
+
+    @IsOptional()
+    @IsNumber()
+    @Min(1)
+    packQuantity?: number;
+
+    @IsOptional()
+    @IsNumber()
+    @Min(1)
+    unitsPerPack?: number;
 
     @IsNumber()
     unitCost: number;

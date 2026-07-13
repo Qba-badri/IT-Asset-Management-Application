@@ -20,11 +20,11 @@ import { StockModule } from './modules/stock/stock.module';
 import { AssignmentsModule } from './modules/assignments/assignments.module';
 import { AuditEventsModule } from './modules/audit-events/audit-events.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { AuditReportModule } from './modules/audit-report/audit-report.module';
 import { LocationsModule } from './modules/locations/locations.module';
 import { DepartmentsModule } from './modules/departments/departments.module';
 import { MasterModule } from './modules/master/master.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
-import { BotModule } from './modules/bot/bot.module';
 import { SettingsModule } from './modules/settings/settings.module';
 
 // Existing entities
@@ -142,12 +142,12 @@ import { SystemSetting } from './entities/system-setting.entity';
     AssignmentsModule,
     AuditEventsModule,
     ReportsModule,
+    AuditReportModule,
     LocationsModule,
     DepartmentsModule,
     MasterModule,
     AuditLogsModule,
     InventoryManagementModule,
-    BotModule,
     SettingsModule,
   ],
   controllers: [AppController],

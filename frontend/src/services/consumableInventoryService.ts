@@ -16,6 +16,7 @@ export interface InventoryItem {
     totalStock: number;
     availableStock: number;
     minStockLevel: number;
+    unitsPerPack: number;
     status: string;
     assignments?: InventoryAssignment[];
     purchases?: InventoryPurchase[];
@@ -31,6 +32,8 @@ export interface InventoryPurchase {
     itemId: number;
     item?: InventoryItem;
     quantity: number;
+    packQuantity?: number | null;
+    unitsPerPack?: number;
     unitCost: number;
     totalCost: number;
     remarks: string;

@@ -126,6 +126,7 @@ export class AssignLicenseDto {
 }
 
 export class RenewLicenseDto {
+    @IsDate()
     @Type(() => Date)
     newExpiryDate: Date;
 

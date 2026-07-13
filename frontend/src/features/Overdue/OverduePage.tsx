@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Clock, AlertTriangle, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
-import { assignmentsService, Assignment, OverdueQuery } from '../../services/assignmentsService';
+import { AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { assignmentsService, Assignment } from '../../services/assignmentsService';
 import { useToast } from '../../context/ToastContext';
+import { PageHeader } from '../../components/shared/PageHeader';
+import { Card, CardContent } from '../../components/ui/card';
+import { Button } from '../../components/ui/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 
 const OverduePage: React.FC = () => {
   const { showToast } = useToast();
@@ -33,56 +37,54 @@ const OverduePage: React.FC = () => {
   };
 
   return (
-    <div className="p-6">
-      <div className="flex items-center gap-3 mb-6">
+    <div className="space-y-6">
+      <PageHeader title="Overdue Items" description={`${total} items past their due date`}>
         <AlertTriangle className="w-6 h-6 text-red-500" />
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Overdue Items</h1>
-          <p className="text-sm text-red-600">{total} items past their due date</p>
-        </div>
-      </div>
+      </PageHeader>
 
-      <div className="bg-white rounded-lg border overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-red-50 border-b">
-            <tr>
-              <th className="px-4 py-3 text-left font-medium text-gray-700">Employee</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-700">Item</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-700">Asset Tag</th>
-              <th className="px-4 py-3 text-right font-medium text-gray-700">Qty Out</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-700">Due Date</th>
-              <th className="px-4 py-3 text-right font-medium text-red-700">Days Overdue</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {loading ? (
-              <tr><td colSpan={6} className="px-4 py-12 text-center text-gray-400">Loading...</td></tr>
-            ) : items.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-12 text-center text-green-600 font-medium">No overdue items!</td></tr>
-            ) : items.map((a) => (
-              <tr key={a.id} className="hover:bg-red-50/50">
-                <td className="px-4 py-3">{a.assignee?.firstName} {a.assignee?.lastName}</td>
-                <td className="px-4 py-3">{a.catalogItem?.name}</td>
-                <td className="px-4 py-3 font-mono">{a.assetUnit?.assetTag || '—'}</td>
-                <td className="px-4 py-3 text-right font-bold">{a.quantity - a.returnedQuantity}</td>
-                <td className="px-4 py-3">{new Date(a.dueDate!).toLocaleDateString()}</td>
-                <td className="px-4 py-3 text-right font-bold text-red-600">
-                  {daysOverdue(a.dueDate!)} days
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
-            <span className="text-sm text-gray-600">Page {page} of {totalPages}</span>
-            <div className="flex gap-1">
-              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="p-1 rounded hover:bg-gray-200 disabled:opacity-40"><ChevronLeft className="w-4 h-4" /></button>
-              <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="p-1 rounded hover:bg-gray-200 disabled:opacity-40"><ChevronRight className="w-4 h-4" /></button>
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Employee</TableHead>
+                <TableHead>Item</TableHead>
+                <TableHead>Asset Tag</TableHead>
+                <TableHead className="text-right">Qty Out</TableHead>
+                <TableHead>Due Date</TableHead>
+                <TableHead className="text-right text-red-700">Days Overdue</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow><TableCell colSpan={6} className="text-center py-12 text-muted-foreground">Loading...</TableCell></TableRow>
+              ) : items.length === 0 ? (
+                <TableRow><TableCell colSpan={6} className="text-center py-12 text-green-600 font-medium">No overdue items!</TableCell></TableRow>
+              ) : items.map((a) => (
+                <TableRow key={a.id} className="hover:bg-red-50/50">
+                  <TableCell>{a.assignee?.firstName} {a.assignee?.lastName}</TableCell>
+                  <TableCell>{a.catalogItem?.name}</TableCell>
+                  <TableCell className="font-mono">{a.assetUnit?.assetTag || '—'}</TableCell>
+                  <TableCell className="text-right font-bold">{a.quantity - a.returnedQuantity}</TableCell>
+                  <TableCell>{new Date(a.dueDate!).toLocaleDateString()}</TableCell>
+                  <TableCell className="text-right font-bold text-red-600">
+                    {daysOverdue(a.dueDate!)} days
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t bg-muted/40">
+              <span className="text-sm text-muted-foreground">Page {page} of {totalPages}</span>
+              <div className="flex gap-1">
+                <Button variant="outline" size="icon" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}><ChevronLeft className="w-4 h-4" /></Button>
+                <Button variant="outline" size="icon" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}><ChevronRight className="w-4 h-4" /></Button>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 };

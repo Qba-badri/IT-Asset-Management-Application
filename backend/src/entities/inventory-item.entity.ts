@@ -41,6 +41,9 @@ export class InventoryItem {
   @Column({ name: 'min_stock_level', type: 'int', default: 5 })
   minStockLevel: number;
 
+  @Column({ name: 'units_per_pack', type: 'int', default: 1 })
+  unitsPerPack: number;
+
   @Column({ type: 'varchar', length: 255, nullable: true })
   vendor: string;
 

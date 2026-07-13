@@ -28,8 +28,11 @@ export class AuthService {
   ) {}
 
   async login(loginDto: LoginDto) {
+    // Load role AND its permissions (ManyToMany - not eager by default)
+    // Without 'role.permissions', user.role.permissions is undefined → empty slugs array
     const user = await this.usersRepository.findOne({
       where: { email: loginDto.email },
+      relations: ['role', 'role.permissions'],
     });
 
     if (!user) {
@@ -72,6 +75,12 @@ export class AuthService {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
+        // Include role so the frontend can redirect appropriately
+        role: user.role
+          ? { id: user.role.id, name: user.role.name }
+          : null,
+        // Include permission slugs so the frontend mirrors the backend PermissionsGuard
+        permissions: user.role?.permissions?.map((p) => p.slug) ?? [],
       },
     };
   }

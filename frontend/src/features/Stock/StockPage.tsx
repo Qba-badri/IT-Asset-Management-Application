@@ -1,10 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Search, Package, MapPin, TrendingUp, TrendingDown, ChevronLeft, ChevronRight
+  Search, Package, MapPin, TrendingUp, TrendingDown
 } from 'lucide-react';
 import { stockService, StockByLocation, StockLedgerEntry, StockQuery, LedgerQuery } from '../../services/stockService';
 import { locationsService, Location } from '../../services/lookupService';
 import { useToast } from '../../context/ToastContext';
+import { PageHeader } from '../../components/shared/PageHeader';
+import { Card, CardContent } from '../../components/ui/card';
+import { Input } from '../../components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
+import { Pagination } from '../../components/shared/Pagination';
 
 type Tab = 'levels' | 'ledger';
 
@@ -56,11 +62,11 @@ const StockPage: React.FC = () => {
   const ledgerPages = Math.ceil(ledgerTotal / 50);
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Stock Management</h1>
+    <div className="space-y-6">
+      <PageHeader title="Stock Management" />
 
       {/* Tabs */}
-      <div className="border-b mb-6 overflow-x-auto no-scrollbar">
+      <div className="border-b overflow-x-auto no-scrollbar">
         <div className="flex gap-8">
           <button
             onClick={() => setTab('levels')}
@@ -82,114 +88,121 @@ const StockPage: React.FC = () => {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
+      <div className="flex flex-wrap items-center gap-3">
         {tab === 'levels' && (
           <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input type="text" placeholder="Search items..." value={stockSearch}
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input type="text" placeholder="Search items..." value={stockSearch}
               onChange={(e) => { setStockSearch(e.target.value); setStockPage(1); }}
-              className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm" />
+              className="pl-10" />
           </div>
         )}
-        <select value={locationFilter} onChange={(e) => { setLocationFilter(e.target.value ? Number(e.target.value) : ''); setStockPage(1); setLedgerPage(1); }}
-          className="border rounded-lg px-3 py-2 text-sm">
-          <option value="">All Locations</option>
-          {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-        </select>
+        <Select
+          value={locationFilter ? String(locationFilter) : 'all'}
+          onValueChange={(value) => { setLocationFilter(value === 'all' ? '' : Number(value)); setStockPage(1); setLedgerPage(1); }}
+        >
+          <SelectTrigger className="w-[200px]">
+            <SelectValue placeholder="All Locations" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Locations</SelectItem>
+            {locations.map((l) => <SelectItem key={l.id} value={String(l.id)}>{l.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Stock Levels Table */}
       {tab === 'levels' && (
-        <div className="bg-white rounded-lg border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Item</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">SKU</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Location</th>
-                <th className="px-4 py-3 text-right font-medium text-gray-600">Quantity</th>
-                <th className="px-4 py-3 text-right font-medium text-gray-600">Reorder Point</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {stocks.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-12 text-center text-gray-400">No stock records</td></tr>
-              ) : stocks.map((s) => (
-                <tr key={s.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium">{s.catalogItem?.name || '—'}</td>
-                  <td className="px-4 py-3 font-mono text-gray-600">{s.catalogItem?.sku}</td>
-                  <td className="px-4 py-3"><MapPin className="w-3 h-3 inline mr-1 text-gray-400" />{s.location?.name || '—'}</td>
-                  <td className={`px-4 py-3 text-right font-bold ${s.quantity <= (s.catalogItem?.reorderPoint || 0) ? 'text-red-600' : 'text-gray-900'}`}>
-                    {s.quantity}
-                    {s.quantity <= (s.catalogItem?.reorderPoint || 0) && (
-                      <span className="ml-1 text-xs text-red-500">LOW</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right text-gray-500">{s.catalogItem?.reorderPoint || 0}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {stockPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
-              <span className="text-sm text-gray-600">Page {stockPage} of {stockPages}</span>
-              <div className="flex gap-1">
-                <button onClick={() => setStockPage((p) => Math.max(1, p - 1))} disabled={stockPage === 1} className="p-1 rounded hover:bg-gray-200 disabled:opacity-40"><ChevronLeft className="w-4 h-4" /></button>
-                <button onClick={() => setStockPage((p) => Math.min(stockPages, p + 1))} disabled={stockPage === stockPages} className="p-1 rounded hover:bg-gray-200 disabled:opacity-40"><ChevronRight className="w-4 h-4" /></button>
-              </div>
-            </div>
-          )}
-        </div>
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Item</TableHead>
+                  <TableHead>SKU</TableHead>
+                  <TableHead>Location</TableHead>
+                  <TableHead className="text-right">Quantity</TableHead>
+                  <TableHead className="text-right">Reorder Point</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {stocks.length === 0 ? (
+                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-12">No stock records</TableCell></TableRow>
+                ) : stocks.map((s) => (
+                  <TableRow key={s.id}>
+                    <TableCell className="font-medium">{s.catalogItem?.name || '—'}</TableCell>
+                    <TableCell className="font-mono text-muted-foreground">{s.catalogItem?.sku}</TableCell>
+                    <TableCell><MapPin className="w-3 h-3 inline mr-1 text-muted-foreground" />{s.location?.name || '—'}</TableCell>
+                    <TableCell className={`text-right font-bold ${s.quantity <= (s.catalogItem?.reorderPoint || 0) ? 'text-red-600' : 'text-foreground'}`}>
+                      {s.quantity}
+                      {s.quantity <= (s.catalogItem?.reorderPoint || 0) && (
+                        <span className="ml-1 text-xs text-red-500">LOW</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground">{s.catalogItem?.reorderPoint || 0}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <Pagination
+              currentPage={stockPage}
+              totalPages={stockPages}
+              onPageChange={setStockPage}
+              totalItems={stockTotal}
+              pageSize={25}
+            />
+          </CardContent>
+        </Card>
       )}
 
       {/* Ledger Table */}
       {tab === 'ledger' && (
-        <div className="bg-white rounded-lg border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Date</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Item</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Location</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Reason</th>
-                <th className="px-4 py-3 text-right font-medium text-gray-600">Change</th>
-                <th className="px-4 py-3 text-right font-medium text-gray-600">Balance</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">By</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {ledger.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-12 text-center text-gray-400">No ledger entries</td></tr>
-              ) : ledger.map((entry) => (
-                <tr key={entry.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-gray-600">{new Date(entry.createdAt).toLocaleString()}</td>
-                  <td className="px-4 py-3">{entry.catalogItem?.name}</td>
-                  <td className="px-4 py-3">{entry.location?.name}</td>
-                  <td className="px-4 py-3">
-                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100">
-                      {entry.reason.replace(/_/g, ' ')}
-                    </span>
-                  </td>
-                  <td className={`px-4 py-3 text-right font-mono font-bold ${entry.quantityChange > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {entry.quantityChange > 0 ? <TrendingUp className="w-3 h-3 inline mr-1" /> : <TrendingDown className="w-3 h-3 inline mr-1" />}
-                    {entry.quantityChange > 0 ? '+' : ''}{entry.quantityChange}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono">{entry.runningBalance}</td>
-                  <td className="px-4 py-3 text-gray-600">{entry.createdBy?.firstName} {entry.createdBy?.lastName}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {ledgerPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
-              <span className="text-sm text-gray-600">Page {ledgerPage} of {ledgerPages}</span>
-              <div className="flex gap-1">
-                <button onClick={() => setLedgerPage((p) => Math.max(1, p - 1))} disabled={ledgerPage === 1} className="p-1 rounded hover:bg-gray-200 disabled:opacity-40"><ChevronLeft className="w-4 h-4" /></button>
-                <button onClick={() => setLedgerPage((p) => Math.min(ledgerPages, p + 1))} disabled={ledgerPage === ledgerPages} className="p-1 rounded hover:bg-gray-200 disabled:opacity-40"><ChevronRight className="w-4 h-4" /></button>
-              </div>
-            </div>
-          )}
-        </div>
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Item</TableHead>
+                  <TableHead>Location</TableHead>
+                  <TableHead>Reason</TableHead>
+                  <TableHead className="text-right">Change</TableHead>
+                  <TableHead className="text-right">Balance</TableHead>
+                  <TableHead>By</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {ledger.length === 0 ? (
+                  <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-12">No ledger entries</TableCell></TableRow>
+                ) : ledger.map((entry) => (
+                  <TableRow key={entry.id}>
+                    <TableCell className="text-muted-foreground">{new Date(entry.createdAt).toLocaleString()}</TableCell>
+                    <TableCell>{entry.catalogItem?.name}</TableCell>
+                    <TableCell>{entry.location?.name}</TableCell>
+                    <TableCell>
+                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-muted">
+                        {entry.reason.replace(/_/g, ' ')}
+                      </span>
+                    </TableCell>
+                    <TableCell className={`text-right font-mono font-bold ${entry.quantityChange > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {entry.quantityChange > 0 ? <TrendingUp className="w-3 h-3 inline mr-1" /> : <TrendingDown className="w-3 h-3 inline mr-1" />}
+                      {entry.quantityChange > 0 ? '+' : ''}{entry.quantityChange}
+                    </TableCell>
+                    <TableCell className="text-right font-mono">{entry.runningBalance}</TableCell>
+                    <TableCell className="text-muted-foreground">{entry.createdBy?.firstName} {entry.createdBy?.lastName}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <Pagination
+              currentPage={ledgerPage}
+              totalPages={ledgerPages}
+              onPageChange={setLedgerPage}
+              totalItems={ledgerTotal}
+              pageSize={50}
+            />
+          </CardContent>
+        </Card>
       )}
     </div>
   );

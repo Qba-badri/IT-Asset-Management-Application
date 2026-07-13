@@ -18,6 +18,7 @@ export interface AssetUnit {
   location?: { id: number; name: string };
   purchaseDate?: string;
   purchaseCost?: number;
+  currency?: string;
   vendor?: string;
   warrantyExpiry?: string;
   usefulLifeYears?: number;
@@ -35,6 +36,7 @@ export interface CreateAssetUnitInput {
   locationId?: number;
   purchaseDate?: string;
   purchaseCost?: number;
+  currency?: string;
   vendor?: string;
   warrantyExpiry?: string;
   usefulLifeYears?: number;

@@ -76,6 +76,11 @@ export class InventoryManagementService {
     // --- Items ---
     async createItem(dto: CreateInventoryItemDto) {
         const item = this.itemRepo.create(dto);
+        if (dto.packQuantity != null) {
+            const unitsPerPack = dto.unitsPerPack ?? 1;
+            item.totalStock = dto.packQuantity * unitsPerPack;
+            item.availableStock = item.totalStock;
+        }
         return this.itemRepo.save(item);
     }
 
@@ -98,15 +103,25 @@ export class InventoryManagementService {
             throw new NotFoundException('Inventory item not found');
         }
 
-        // Update only the fields that can be changed
-        // Note: totalStock and availableStock should not be updated directly
-        // They should be updated through purchases, assignments, and returns
+        // Note: totalStock/availableStock are normally driven by purchases, assignments and
+        // returns. Editing packQuantity on the item form is the one direct override allowed —
+        // it recomputes totalStock from packs and shifts availableStock by the same delta so
+        // stock already checked out to users isn't affected.
         Object.assign(item, {
             name: dto.name,
             categoryId: dto.categoryId,
             isRefundable: dto.isRefundable,
             minStockLevel: dto.minStockLevel,
+            unitsPerPack: dto.unitsPerPack,
         });
+
+        if (dto.packQuantity != null) {
+            const unitsPerPack = dto.unitsPerPack ?? item.unitsPerPack ?? 1;
+            const newTotal = dto.packQuantity * unitsPerPack;
+            const delta = newTotal - item.totalStock;
+            item.totalStock = newTotal;
+            item.availableStock = Math.max(0, item.availableStock + delta);
+        }
 
         return this.itemRepo.save(item);
     }
@@ -117,23 +132,30 @@ export class InventoryManagementService {
             const item = await manager.findOne(InventoryItem, { where: { id: dto.itemId } });
             if (!item) throw new NotFoundException('Item not found');
 
+            // Purchases entered in packs are converted to units server-side (never trust a client-computed total)
+            const unitsPerPack = dto.packQuantity ? (dto.unitsPerPack ?? item.unitsPerPack ?? 1) : 1;
+            const quantity = dto.packQuantity ? dto.packQuantity * unitsPerPack : dto.quantity;
+
             // 1. Create Purchase record
             const purchase = manager.create(InventoryPurchase, {
                 ...dto,
-                totalCost: dto.quantity * dto.unitCost,
+                quantity,
+                packQuantity: dto.packQuantity ?? null,
+                unitsPerPack,
+                totalCost: quantity * dto.unitCost,
             });
             const savedPurchase = await manager.save(InventoryPurchase, purchase);
 
             // 2. Update Stock
-            item.totalStock += dto.quantity;
-            item.availableStock += dto.quantity;
+            item.totalStock += quantity;
+            item.availableStock += quantity;
             await manager.save(InventoryItem, item);
 
             // 3. Log Transaction
             const transaction = manager.create(InventoryTransaction, {
                 itemId: item.id,
                 type: InventoryTransactionType.IN,
-                quantity: dto.quantity,
+                quantity,
                 referenceId: savedPurchase.id,
                 referenceType: 'purchase',
                 performedById: userId,

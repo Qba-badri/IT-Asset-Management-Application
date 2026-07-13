@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import {
-    Plus, Edit, Trash2, Search, Eye,
+    Plus, Edit, Trash2, Search, Eye, UserPlus,
     KeyRound, Users, CalendarClock, AlertTriangle, ArrowUpDown,
     Loader2, Download, ShieldCheck, RefreshCw, Filter, X, Settings2,
     Upload, FileSpreadsheet, Check, FileText as FileIcon
@@ -250,6 +250,12 @@ const LicenseManagement: React.FC = () => {
             setAssignData({ userId: 0, notes: '' });
             setShowAssignModal(true);
         }
+    };
+
+    const openAssignModal = (license: License) => {
+        setSelectedLicense(license);
+        setAssignData({ userId: 0, notes: '' });
+        setShowAssignModal(true);
     };
 
     const submitAssign = async () => {
@@ -600,13 +606,10 @@ const LicenseManagement: React.FC = () => {
                                         </TableCell>
                                         <TableCell>
                                             <div className="text-sm font-medium">
-                                                {new Intl.NumberFormat('en-US', {
-                                                    style: 'currency',
-                                                    currency: license.currency || 'USD'
-                                                }).format(license.totalCost || (license.unitPrice || 0) * (license.totalSeats || 1))}
+                                                {formatCost(license.totalCost || (license.unitPrice || 0) * (license.totalSeats || 1), license.currency)}
                                             </div>
                                             <div className="text-[10px] text-muted-foreground uppercase">
-                                                {license.unitPrice ? `${new Intl.NumberFormat('en-US', { style: 'currency', currency: license.currency || 'USD', maximumFractionDigits: 2 }).format(license.unitPrice)}/seat • ` : ''}
+                                                {license.unitPrice ? `${formatCost(license.unitPrice, license.currency)}/seat • ` : ''}
                                                 {lookups['BILLING_FREQUENCY']?.find(l => l.value === license.billingFrequency)?.label || license.billingFrequency}
                                             </div>
                                         </TableCell>
@@ -619,6 +622,8 @@ const LicenseManagement: React.FC = () => {
                                                 {currentUser?.role?.name === 'Admin' && (
                                                     <ActionDropdown
                                                         actions={[
+                                                            { label: 'Assign', icon: <UserPlus className="h-4 w-4" />, onClick: () => openAssignModal(license), variant: 'default' as const, disabled: license.usedSeats >= license.totalSeats },
+                                                            { label: 'Renew', icon: <RefreshCw className="h-4 w-4" />, onClick: () => openRenewModal(license), variant: 'default' as const },
                                                             { label: 'Edit', icon: <Edit className="h-4 w-4" />, onClick: () => handleEdit(license), variant: 'default' as const },
                                                             { label: 'Delete', icon: <Trash2 className="h-4 w-4" />, onClick: () => handleDelete(license.id), variant: 'danger' as const, disabled: ((license.assignments && license.assignments.length > 0) || (license.usedSeats && license.usedSeats > 0)) },
                                                         ] as ActionItem[]}

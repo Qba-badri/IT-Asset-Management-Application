@@ -25,6 +25,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { Progress } from '../../components/ui/progress';
+import { useCurrency } from '../../context/CurrencyContext';
 
 interface LicenseDetailsProps {
     license: License;
@@ -41,6 +42,7 @@ const LicenseDetails: React.FC<LicenseDetailsProps> = ({
     onRenew,
     onUnassign
 }) => {
+    const { formatCost } = useCurrency();
     const [history, setHistory] = useState<LicenseHistory[]>([]);
     const [loadingHistory, setLoadingHistory] = useState(false);
 
@@ -100,11 +102,11 @@ const LicenseDetails: React.FC<LicenseDetailsProps> = ({
                     <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Cost Overview</CardTitle></CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold">
-                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: license.currency }).format(license.unitPrice || 0)}
+                            {formatCost(license.unitPrice || 0, license.currency)}
                             <span className="text-sm font-normal text-muted-foreground"> / {license.billingFrequency}</span>
                         </div>
                         <p className="text-xs text-muted-foreground mt-2">
-                            Total: {new Intl.NumberFormat('en-US', { style: 'currency', currency: license.currency }).format((license.unitPrice || 0) * license.totalSeats)} / cycle
+                            Total: {formatCost((license.unitPrice || 0) * license.totalSeats, license.currency)} / cycle
                         </p>
                     </CardContent>
                 </Card>
@@ -180,7 +182,7 @@ const LicenseDetails: React.FC<LicenseDetailsProps> = ({
                             <div>
                                 <h4 className="font-semibold mb-2">Cost Projection</h4>
                                 <div className="text-sm text-muted-foreground">
-                                    Annual estimated cost: {new Intl.NumberFormat('en-US', { style: 'currency', currency: license.currency }).format((license.unitPrice || 0) * license.totalSeats * (license.billingFrequency === 'monthly' ? 12 : 1))}
+                                    Annual estimated cost: {formatCost((license.unitPrice || 0) * license.totalSeats * (license.billingFrequency === 'monthly' ? 12 : 1), license.currency)}
                                 </div>
                             </div>
                         </CardContent>

@@ -1,12 +1,19 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Search, Filter, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
-  Tag, MapPin, Settings, Eye, Plus
+  Search, ChevronDown, ChevronUp,
+  Tag, MapPin, Eye, Plus
 } from 'lucide-react';
 import { assetUnitsService, AssetUnit, AssetUnitStatus, AssetUnitQuery } from '../../services/assetUnitsService';
 import { locationsService, Location } from '../../services/lookupService';
 import { useToast } from '../../context/ToastContext';
+import { PageHeader } from '../../components/shared/PageHeader';
+import { Card, CardContent } from '../../components/ui/card';
+import { Input } from '../../components/ui/input';
+import { Button } from '../../components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
+import { Pagination } from '../../components/shared/Pagination';
 
 type SortKey = 'assetTag' | 'status' | 'condition' | 'createdAt';
 type SortDir = 'asc' | 'desc';
@@ -105,11 +112,11 @@ const AssetsListPage: React.FC = () => {
   };
 
   const SortIcon = ({ col }: { col: SortKey }) => {
-    if (sortKey !== col) return <ChevronDown className="w-3 h-3 text-gray-400" />;
+    if (sortKey !== col) return <ChevronDown className="w-3 h-3 text-muted-foreground" />;
     return sortDir === 'asc' ? (
-      <ChevronUp className="w-3 h-3 text-blue-600" />
+      <ChevronUp className="w-3 h-3 text-primary" />
     ) : (
-      <ChevronDown className="w-3 h-3 text-blue-600" />
+      <ChevronDown className="w-3 h-3 text-primary" />
     );
   };
 
@@ -126,26 +133,18 @@ const AssetsListPage: React.FC = () => {
   };
 
   return (
-    <div className="p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Serialized Assets</h1>
-          <p className="text-sm text-gray-500 mt-1">{total} asset units total</p>
-        </div>
-        <button
-          onClick={() => navigate('/dashboard/asset-units/new')}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
-        >
-          <Plus className="w-4 h-4" /> Register Asset
-        </button>
-      </div>
+    <div className="space-y-6">
+      <PageHeader title="Serialized Assets" description={`${total} asset units total`}>
+        <Button onClick={() => navigate('/dashboard/asset-units/new')}>
+          <Plus className="w-4 h-4 mr-2" /> Register Asset
+        </Button>
+      </PageHeader>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
+      <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
             type="text"
             placeholder="Search by asset tag or serial number..."
             value={search}
@@ -153,172 +152,150 @@ const AssetsListPage: React.FC = () => {
               setSearch(e.target.value);
               setPage(1);
             }}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+            className="pl-10"
           />
         </div>
-        <select
-          value={statusFilter}
-          onChange={(e) => {
-            setStatusFilter(e.target.value as AssetUnitStatus | '');
+        <Select
+          value={statusFilter || 'all'}
+          onValueChange={(value) => {
+            setStatusFilter(value === 'all' ? '' : (value as AssetUnitStatus));
             setPage(1);
           }}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
         >
-          <option value="">All Statuses</option>
-          <option value="in_stock">In Stock</option>
-          <option value="assigned">Assigned</option>
-          <option value="in_maintenance">In Maintenance</option>
-          <option value="in_repair">In Repair</option>
-          <option value="lost">Lost</option>
-          <option value="written_off">Written Off</option>
-          <option value="disposed">Disposed</option>
-        </select>
-        <select
-          value={locationFilter}
-          onChange={(e) => {
-            setLocationFilter(e.target.value ? Number(e.target.value) : '');
+          <SelectTrigger className="w-[200px]">
+            <SelectValue placeholder="All Statuses" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Statuses</SelectItem>
+            <SelectItem value="in_stock">In Stock</SelectItem>
+            <SelectItem value="assigned">Assigned</SelectItem>
+            <SelectItem value="in_maintenance">In Maintenance</SelectItem>
+            <SelectItem value="in_repair">In Repair</SelectItem>
+            <SelectItem value="lost">Lost</SelectItem>
+            <SelectItem value="written_off">Written Off</SelectItem>
+            <SelectItem value="disposed">Disposed</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select
+          value={locationFilter ? String(locationFilter) : 'all'}
+          onValueChange={(value) => {
+            setLocationFilter(value === 'all' ? '' : Number(value));
             setPage(1);
           }}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
         >
-          <option value="">All Locations</option>
-          {locations.map((l) => (
-            <option key={l.id} value={l.id}>{l.name}</option>
-          ))}
-        </select>
+          <SelectTrigger className="w-[200px]">
+            <SelectValue placeholder="All Locations" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Locations</SelectItem>
+            {locations.map((l) => (
+              <SelectItem key={l.id} value={String(l.id)}>{l.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th
-                  className="px-4 py-3 text-left font-medium text-gray-600 cursor-pointer select-none"
-                  onClick={() => toggleSort('assetTag')}
-                >
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="cursor-pointer select-none" onClick={() => toggleSort('assetTag')}>
                   <div className="flex items-center gap-1">
                     Asset Tag <SortIcon col="assetTag" />
                   </div>
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Catalog Item</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Serial Number</th>
-                <th
-                  className="px-4 py-3 text-left font-medium text-gray-600 cursor-pointer select-none"
-                  onClick={() => toggleSort('status')}
-                >
+                </TableHead>
+                <TableHead>Catalog Item</TableHead>
+                <TableHead>Serial Number</TableHead>
+                <TableHead className="cursor-pointer select-none" onClick={() => toggleSort('status')}>
                   <div className="flex items-center gap-1">
                     Status <SortIcon col="status" />
                   </div>
-                </th>
-                <th
-                  className="px-4 py-3 text-left font-medium text-gray-600 cursor-pointer select-none"
-                  onClick={() => toggleSort('condition')}
-                >
+                </TableHead>
+                <TableHead className="cursor-pointer select-none" onClick={() => toggleSort('condition')}>
                   <div className="flex items-center gap-1">
                     Condition <SortIcon col="condition" />
                   </div>
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Location</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
+                </TableHead>
+                <TableHead>Location</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {loading ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-gray-400">
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-12">
                     Loading assets...
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ) : sortedAssets.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-gray-400">
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-12">
                     No assets found
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ) : (
                 sortedAssets.map((asset) => (
-                  <tr
+                  <TableRow
                     key={asset.id}
-                    className="hover:bg-gray-50 cursor-pointer transition-colors"
+                    className="cursor-pointer"
                     onClick={() => navigate(`/dashboard/asset-units/${asset.id}`)}
                   >
-                    <td className="px-4 py-3">
+                    <TableCell>
                       <div className="flex items-center gap-2">
-                        <Tag className="w-4 h-4 text-gray-400" />
+                        <Tag className="w-4 h-4 text-muted-foreground" />
                         <span className="font-mono font-medium">{asset.assetTag}</span>
                       </div>
-                    </td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell>
                       {asset.catalogItem?.name || '—'}
-                      <span className="text-xs text-gray-400 ml-1">
+                      <span className="text-xs text-muted-foreground ml-1">
                         {asset.catalogItem?.sku}
                       </span>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-gray-600">
+                    </TableCell>
+                    <TableCell className="font-mono text-muted-foreground">
                       {asset.serialNumber || '—'}
-                    </td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell>
                       <span
                         className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${statusColor[asset.status]}`}
                       >
                         {asset.status.replace(/_/g, ' ')}
                       </span>
-                    </td>
-                    <td className="px-4 py-3 capitalize">{asset.condition}</td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell className="capitalize">{asset.condition}</TableCell>
+                    <TableCell>
                       <div className="flex items-center gap-1">
-                        <MapPin className="w-3 h-3 text-gray-400" />
+                        <MapPin className="w-3 h-3 text-muted-foreground" />
                         {asset.location?.name || '—'}
                       </div>
-                    </td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           navigate(`/dashboard/asset-units/${asset.id}`);
                         }}
-                        className="p-1 text-gray-400 hover:text-blue-600 rounded"
+                        className="p-1 text-muted-foreground hover:text-primary rounded"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))
               )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50">
-            <p className="text-sm text-gray-600">
-              Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}
-            </p>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="p-1 rounded hover:bg-gray-200 disabled:opacity-40"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <span className="text-sm px-2">
-                Page {page} of {totalPages}
-              </span>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className="p-1 rounded hover:bg-gray-200 disabled:opacity-40"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+            </TableBody>
+          </Table>
+          <Pagination
+            currentPage={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            totalItems={total}
+            pageSize={pageSize}
+          />
+        </CardContent>
+      </Card>
     </div>
   );
 };

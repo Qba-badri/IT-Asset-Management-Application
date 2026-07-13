@@ -207,13 +207,13 @@ const AssetDetails: React.FC = () => {
                                     </DataItem>
                                     {asset.acquisitionType === 'rented' ? (
                                         <>
-                                            <DataItem label="Monthly Rent"><span className="text-primary font-semibold">{formatCost(Number(asset.vendorMonthlyRent || 0))}</span></DataItem>
+                                            <DataItem label="Monthly Rent"><span className="text-primary font-semibold">{formatCost(Number(asset.vendorMonthlyRent || 0), asset.currency)}</span></DataItem>
                                             <DataItem label="Rental Start Date">{asset.receivedFromVendorDate ? new Date(asset.receivedFromVendorDate).toLocaleDateString() : '-'}</DataItem>
                                         </>
                                     ) : (
                                         <>
                                             <DataItem label="Purchase Date">{asset.purchaseDate ? new Date(asset.purchaseDate).toLocaleDateString() : '-'}</DataItem>
-                                            <DataItem label="Purchase Cost"><span className="text-primary font-semibold">{formatCost(Number(asset.purchaseCost || 0))}</span></DataItem>
+                                            <DataItem label="Purchase Cost"><span className="text-primary font-semibold">{formatCost(Number(asset.purchaseCost || 0), asset.currency)}</span></DataItem>
                                             <DataItem label="PO / Invoice">{asset.poNumber || '-'}{asset.invoiceNumber ? ` / ${asset.invoiceNumber}` : ''}</DataItem>
                                             <DataItem label="Cost Center">{asset.costCenter || '-'}</DataItem>
                                             <DataItem label="Business Owner">{asset.businessOwner ? `${asset.businessOwner.firstName} ${asset.businessOwner.lastName}` : 'N/A'}</DataItem>
@@ -391,14 +391,14 @@ const AssetDetails: React.FC = () => {
                             )}
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            <DataItem label="Original Cost"><span className="text-primary font-semibold">{formatCost(Number(asset.purchaseCost || 0))}</span></DataItem>
+                            <DataItem label="Original Cost"><span className="text-primary font-semibold">{formatCost(Number(asset.purchaseCost || 0), asset.currency)}</span></DataItem>
                             <DataItem label="Current Book Value">
                                 <span className={`font-semibold ${calculating ? 'animate-pulse text-muted-foreground' : 'text-emerald-600'}`}>
-                                    {formatCost(Number(asset.currentValue || 0))}
+                                    {formatCost(Number(asset.currentValue || 0), asset.currency)}
                                 </span>
                             </DataItem>
                             <DataItem label="Useful Life">{asset.usefulLifeYears} Years</DataItem>
-                            <DataItem label="Salvage Value">{formatCost(Number(asset.salvageValue || 0))}</DataItem>
+                            <DataItem label="Salvage Value">{formatCost(Number(asset.salvageValue || 0), asset.currency)}</DataItem>
                             <DataItem label="Next Maintenance">{asset.nextMaintenanceDate ? new Date(asset.nextMaintenanceDate).toLocaleDateString() : 'None Scheduled'}</DataItem>
                         </CardContent>
                     </Card>

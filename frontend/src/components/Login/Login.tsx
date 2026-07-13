@@ -65,6 +65,8 @@ const Login: React.FC = () => {
     try {
       const response = await authService.login(formData.email, formData.password);
       localStorage.setItem('token', response.token);
+      // Persist user info (including role) for use in AppShell and guards
+      localStorage.setItem('user', JSON.stringify(response.user));
       navigate('/dashboard');
     } catch (err: unknown) {
       const error = err as { message?: string };
