@@ -228,10 +228,15 @@ export class LicensesService {
       Number(license.unitPrice || 0) * (license.totalSeats || 1);
     const newTotal = Math.max(0, currentTotal + Number(dto.costChange || 0));
 
+    // Keep the per-seat price consistent with the adjusted total.
+    const newUnitPrice =
+      Math.round((newTotal / (license.totalSeats || 1)) * 100) / 100;
+
     await this.licenseRepository.update(id, {
       expiryDate: dto.newExpiryDate,
       nextRenewalDate: dto.newExpiryDate,
       totalCost: newTotal,
+      unitPrice: newUnitPrice,
     });
     await this.logHistory(
       id,
