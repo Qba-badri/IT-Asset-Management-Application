@@ -132,6 +132,42 @@ const actionColor: Record<string, string> = {
   transfer: 'text-indigo-600 bg-indigo-50',
 };
 
+/** Short, friendly badge label per audit action (falls back to the raw action). */
+const actionLabel: Record<string, string> = {
+  issue: 'Issued',
+  return: 'Returned',
+  login: 'Sign-in',
+  create: 'Created',
+  update: 'Updated',
+  delete: 'Deleted',
+  lost: 'Lost',
+  repair_start: 'Repair',
+  repair_end: 'Repaired',
+  write_off: 'Write-off',
+  dispose: 'Disposed',
+  transfer: 'Transfer',
+};
+
+/** Plain-English sentence for an audit event, e.g. "issued asset #12" or "signed in". */
+const describeEvent = (e: { action: string; entityType: string; entityId: number | null }): string => {
+  const entity = `${(e.entityType || 'record').replace(/[_-]/g, ' ')}${e.entityId ? ` #${e.entityId}` : ''}`;
+  switch (e.action) {
+    case 'login': return 'signed in';
+    case 'issue': return `issued ${entity}`;
+    case 'return': return `returned ${entity}`;
+    case 'create': return `created ${entity}`;
+    case 'update': return `updated ${entity}`;
+    case 'delete': return `deleted ${entity}`;
+    case 'lost': return `marked ${entity} as lost`;
+    case 'repair_start': return `sent ${entity} for repair`;
+    case 'repair_end': return `received ${entity} back from repair`;
+    case 'write_off': return `wrote off ${entity}`;
+    case 'dispose': return `disposed of ${entity}`;
+    case 'transfer': return `transferred ${entity}`;
+    default: return `${e.action.replace(/[_-]/g, ' ')} ${entity}`;
+  }
+};
+
 // ─────────────────────────────────────────────
 // REUSABLE UI PRIMITIVES
 // To modify the card appearance globally, change StatCard below.
@@ -164,8 +200,8 @@ const StatCard: React.FC<StatCardProps> = ({
     <div className="flex items-center justify-between">
       <span className={`p-2 rounded-lg ${accent}`}>{icon}</span>
       {alert && (
-        <span className="flex h-2 w-2">
-          <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-red-400 opacity-75" />
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inset-0 inline-flex h-2 w-2 rounded-full bg-red-400 opacity-75" />
           <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
         </span>
       )}
@@ -1072,12 +1108,11 @@ const DashboardHome: React.FC = () => {
               {(audit?.recentEvents || []).map(e => (
                 <div key={e.id} className="flex items-start gap-2">
                   <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${actionColor[e.action] || 'text-muted-foreground bg-muted'}`}>
-                    {e.action.toUpperCase()}
+                    {actionLabel[e.action] || e.action.replace(/[_-]/g, ' ')}
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs text-foreground truncate">
-                      <span className="font-medium">{e.actorName}</span> · {e.entityType}
-                      {e.entityId ? ` #${e.entityId}` : ''}
+                      <span className="font-medium">{e.actorName}</span> {describeEvent(e)}
                     </p>
                     <p className="text-[10px] text-muted-foreground">{timeAgo(e.createdAt)}</p>
                   </div>
