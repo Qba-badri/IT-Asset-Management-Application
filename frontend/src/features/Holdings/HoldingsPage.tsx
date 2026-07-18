@@ -23,7 +23,7 @@ const HoldingsPage: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
-  const pageSize = 25;
+  const [pageSize, setPageSize] = useState(25);
 
   const fetchHoldings = useCallback(async () => {
     setLoading(true);
@@ -38,7 +38,7 @@ const HoldingsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, employeeId]);
+  }, [page, pageSize, employeeId]);
 
   useEffect(() => { fetchHoldings(); }, [fetchHoldings]);
 
@@ -114,6 +114,7 @@ const HoldingsPage: React.FC = () => {
             onPageChange={setPage}
             totalItems={total}
             pageSize={pageSize}
+            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
           />
         </CardContent>
       </Card>

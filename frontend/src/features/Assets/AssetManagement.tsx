@@ -12,13 +12,12 @@ import { assetService, Asset } from '../../services/assetService';
 import { userService, User as UserType } from '../../services/userService';
 import { useToast } from '../../context/ToastContext';
 import { authService } from '../../services/authService';
-import { useCurrency, CURRENCY_OPTIONS } from '../../context/CurrencyContext';
+import { useCurrency } from '../../context/CurrencyContext';
 import ConfirmModal from '../../components/Common/ConfirmModal';
 import ActionDropdown, { ActionItem } from '../../components/Common/ActionDropdown';
 import { PageHeader } from '../../components/shared/PageHeader';
 import { masterService, Brand, Vendor, Lookup } from '../../services/masterService';
 import { categoryService } from '../../services/categoryService';
-import { StatCard } from '../../components/shared/StatCard';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
@@ -34,9 +33,37 @@ import {
 import { Pagination } from '../../components/shared/Pagination';
 import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { FormField } from '../../components/shared/FormField';
+import UserSelect from '../../components/shared/UserSelect';
 import { useForm } from '../../hooks/useForm';
+import { useValidatedForm, CrossFieldValidator } from '../../hooks/useValidatedForm';
 
 type TabKey = 'all' | 'available' | 'deployed' | 'maintenance' | 'disposed';
+
+/**
+ * Deploy-form rules that deliberately have no server counterpart.
+ *
+ * - deploymentDate: AssetsService.deploy() defaults an absent date to now, so
+ *   the API accepts a deploy without one. The form has always required it; that
+ *   is a UI choice and is kept here rather than tightened server-side, which
+ *   would break API callers relying on the default.
+ * - reason: the server requires it to be non-empty; the 5-character floor is a
+ *   UI-only quality bar.
+ *
+ * Rules the DTO *can* express belong in the DTO, not here — this hatch is for
+ * genuine client-only rules.
+ */
+const DEPLOY_FORM_RULES: CrossFieldValidator<Record<string, any>> = (values) => {
+    const errors: Record<string, string> = {};
+
+    if (!values.deploymentDate) {
+        errors.deploymentDate = 'Deployment Date is required.';
+    }
+    if (values.reason && values.reason.trim().length < 5) {
+        errors.reason = 'Reason for Deployment must be at least 5 characters.';
+    }
+
+    return errors;
+};
 
 const AssetManagement: React.FC = () => {
     const location = useLocation();
@@ -50,7 +77,7 @@ const AssetManagement: React.FC = () => {
     const [sortConfig, setSortConfig] = useState<{ key: keyof Asset | 'assignedTo'; direction: 'asc' | 'desc' } | null>(null);
     const [currentUser, setCurrentUser] = useState<UserType | null>(null);
     const { showToast } = useToast();
-    const { formatCost, currencySymbol } = useCurrency();
+    const { formatCost, availableCurrencies, defaultCurrency, symbolFor, convertBetween, formatInCurrency } = useCurrency();
 
     // Modal States
     const [showAssetModal, setShowAssetModal] = useState(false);
@@ -71,7 +98,7 @@ const AssetManagement: React.FC = () => {
     const [selectedAssetId, setSelectedAssetId] = useState<number | null>(null);
 
     // Master Data States
-    interface Category { id: number; name: string; allowedTargetTypes?: string[]; }
+    interface Category { id: number; name: string; allowedTargetTypes?: string[]; isActive?: boolean; }
     const [masterCategories, setMasterCategories] = useState<Category[]>([]);
     const [masterBrands, setMasterBrands] = useState<Brand[]>([]);
     const [masterVendors, setMasterVendors] = useState<Vendor[]>([]);
@@ -115,29 +142,50 @@ const AssetManagement: React.FC = () => {
         usefulLifeYears: { min: 1 }
     });
 
+    // Original-currency amount + its equivalent in the org default currency, shown
+    // under cost inputs whenever the form's currency differs from the default.
+    const formCurrencySymbol = symbolFor(assetFormData.currency || defaultCurrency);
+    const renderDefaultCurrencyHint = (value: string) => {
+        const amount = parseFloat(value);
+        if (!amount || !assetFormData.currency || assetFormData.currency === defaultCurrency) return null;
+        return (
+            <p className="text-xs text-muted-foreground mt-1">
+                ≈ {formatInCurrency(convertBetween(amount, assetFormData.currency, defaultCurrency), defaultCurrency)} {defaultCurrency}
+            </p>
+        );
+    };
+
     const {
         values: deployFormData,
         errors: deployErrors,
+        isRequired: isDeployFieldRequired,
         handleChange: handleDeployChange,
         handleBlur: handleDeployBlur,
         validateForm: validateDeployForm,
+        applyServerErrors: applyDeployServerErrors,
         resetForm: resetDeployForm,
         setValues: setDeployValues
-    } = useForm({
-        targetType: 'PERSON',
-        userId: '',
-        location: '',
-        site: '',
-        building: '',
-        floor: '',
-        roomDesk: '',
-        deploymentDate: '',
-        reason: ''
-    }, {
-        targetType: { required: true },
-        userId: { custom: (val, all) => (all.targetType === 'PERSON' && !val) ? 'User is required for PERSON assignment.' : null },
-        deploymentDate: { required: true },
-        reason: { required: true, minLength: 5 }
+    } = useValidatedForm({
+        formKey: 'asset.deploy',
+        initialValues: {
+            targetType: 'PERSON',
+            userId: '',
+            location: '',
+            site: '',
+            building: '',
+            floor: '',
+            roomDesk: '',
+            deploymentDate: '',
+            reason: ''
+        } as Record<string, any>,
+        labels: {
+            targetType: 'Assignment Target',
+            userId: 'Assign To User',
+            location: 'Specific Location',
+            deploymentDate: 'Deployment Date',
+            reason: 'Reason for Deployment'
+        },
+        crossFieldValidators: [DEPLOY_FORM_RULES]
     });
 
     const {
@@ -203,7 +251,7 @@ const AssetManagement: React.FC = () => {
 
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
-    const [itemsPerPage] = useState(10);
+    const [itemsPerPage, setItemsPerPage] = useState(10);
 
     // Image upload state
     const [selectedImages, setSelectedImages] = useState<File[]>([]);
@@ -283,7 +331,7 @@ const AssetManagement: React.FC = () => {
         setEditMode(false);
         resetAssetForm({
             assetTag: '', name: '', category: '', condition: 'new', status: 'available', acquisitionType: 'purchased',
-            brand: '', model: '', serialNumber: '', purchaseDate: '', purchaseCost: '', currency: 'INR', vendor: '',
+            brand: '', model: '', serialNumber: '', purchaseDate: '', purchaseCost: '', currency: defaultCurrency, vendor: '',
             receivedFromVendorDate: '', vendorMonthlyRent: '', warrantyExpiry: '', usefulLifeYears: '5',
             salvageValue: '', location: '', notes: '',
             hostname: '', poNumber: '', invoiceNumber: '', costCenter: '', businessOwnerId: '',
@@ -302,7 +350,7 @@ const AssetManagement: React.FC = () => {
             status: asset.status, acquisitionType: asset.acquisitionType || 'purchased',
             brand: asset.brand || '', model: asset.model || '', serialNumber: asset.serialNumber || '',
             purchaseDate: asset.purchaseDate?.split('T')[0] || '', purchaseCost: asset.purchaseCost?.toString() || '',
-            currency: asset.currency || 'INR',
+            currency: asset.currency || defaultCurrency,
             vendor: asset.vendor || '', receivedFromVendorDate: asset.receivedFromVendorDate?.split('T')[0] || '',
             vendorMonthlyRent: asset.vendorMonthlyRent?.toString() || '',
             warrantyExpiry: asset.warrantyExpiry?.split('T')[0] || '',
@@ -375,7 +423,7 @@ const AssetManagement: React.FC = () => {
                 // Purchase-only fields (clear if rented)
                 purchaseDate: isPurchased ? (assetFormData.purchaseDate || null) : null,
                 purchaseCost: isPurchased ? (assetFormData.purchaseCost ? parseFloat(assetFormData.purchaseCost) : null) : null,
-                currency: assetFormData.currency || 'INR',
+                currency: assetFormData.currency || defaultCurrency,
                 usefulLifeYears: isPurchased ? (assetFormData.usefulLifeYears ? parseInt(assetFormData.usefulLifeYears) : 3) : 3,
                 salvageValue: isPurchased ? (assetFormData.salvageValue ? parseFloat(assetFormData.salvageValue) : null) : null,
 
@@ -457,7 +505,15 @@ const AssetManagement: React.FC = () => {
             await assetService.deployAsset(selectedAssetId, payload);
             showToast('Asset deployed successfully', 'success');
             setShowDeployModal(false); loadData();
-        } catch { showToast('Failed to deploy asset', 'error'); }
+        } catch (error: any) {
+            // Server-side validation wins: if it rejected specific fields, show
+            // the messages on those fields rather than a generic toast. The
+            // modal stays open so the user keeps their input.
+            if (error?.fieldErrors) {
+                applyDeployServerErrors(error.fieldErrors);
+            }
+            showToast(error?.friendlyMessage || 'Failed to deploy asset', 'error');
+        }
         finally { setSubmittingAction(false); }
     };
 
@@ -817,40 +873,6 @@ const AssetManagement: React.FC = () => {
                 </div>
             </PageHeader>
 
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
-                <StatCard
-                    title="Total Assets"
-                    value={assets.length}
-                    subtitle="Tracked items"
-                    icon={Monitor}
-                    iconColor="bg-blue-100 text-blue-600"
-                />
-                <StatCard
-                    title="Available"
-                    value={assets.filter(a => a.status?.toLowerCase() === 'available').length}
-                    subtitle="Ready to deploy"
-                    icon={Check}
-                    iconColor="bg-emerald-100 text-emerald-600"
-                    trend="up"
-                />
-                <StatCard
-                    title="Deployed"
-                    value={assets.filter(a => a.status?.toLowerCase() === 'deployed').length}
-                    subtitle="In use"
-                    icon={User}
-                    iconColor="bg-primary/10 text-primary"
-                    trend="up"
-                />
-                <StatCard
-                    title="Maintenance"
-                    value={assets.filter(a => ['maintenance', 'repair', 'in repair'].includes(a.status?.toLowerCase() || '')).length}
-                    subtitle="Pending service"
-                    icon={Wrench}
-                    iconColor="bg-amber-100 text-amber-600"
-                    trend="down"
-                />
-            </div>
-
             <Card>
                 <CardContent className="p-0">
                     <div className="border-b px-6 flex items-center justify-between gap-4 bg-card/50 overflow-x-auto no-scrollbar">
@@ -1002,6 +1024,7 @@ const AssetManagement: React.FC = () => {
                         onPageChange={setCurrentPage}
                         totalItems={filteredAssets.length}
                         pageSize={itemsPerPage}
+                        onPageSizeChange={(size) => { setItemsPerPage(size); setCurrentPage(1); }}
                     />
                 </CardContent>
             </Card>
@@ -1017,7 +1040,10 @@ const AssetManagement: React.FC = () => {
                             <FormField id="category" label="Category" required error={assetErrors.category} hint="Classification of the asset">
                                 <select id="category" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={assetFormData.category} onChange={(e) => handleAssetChange('category', e.target.value)} onBlur={() => handleAssetBlur('category')}>
                                     <option value="">Select category...</option>
-                                    {masterCategories.map(cat => <option key={cat.id} value={cat.name}>{cat.name}</option>)}
+                                    {/* Inactive master data is not offered; the asset's current value stays listed. */}
+                                    {masterCategories
+                                        .filter(cat => cat.isActive !== false || cat.name === assetFormData.category)
+                                        .map(cat => <option key={cat.id} value={cat.name}>{cat.isActive === false ? `${cat.name} (Inactive)` : cat.name}</option>)}
                                 </select>
                             </FormField>
                             <FormField id="assetTag" label="Asset Tag" required error={assetErrors.assetTag} hint="Unique ID (e.g. LAP-001)">
@@ -1037,7 +1063,9 @@ const AssetManagement: React.FC = () => {
                             <FormField id="brand" label="Brand" hint="Manufacturer name">
                                 <select id="brand" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={assetFormData.brand} onChange={(e) => handleAssetChange('brand', e.target.value)}>
                                     <option value="">Select brand...</option>
-                                    {masterBrands.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+                                    {masterBrands
+                                        .filter(b => b.isActive !== false || b.name === assetFormData.brand)
+                                        .map(b => <option key={b.id} value={b.name}>{b.isActive === false ? `${b.name} (Inactive)` : b.name}</option>)}
                                 </select>
                             </FormField>
                             <FormField id="model" label="Model" hint="Specific product model">
@@ -1073,10 +1101,14 @@ const AssetManagement: React.FC = () => {
                                 <Input value={assetFormData.costCenter} onChange={(e) => handleAssetChange('costCenter', e.target.value)} placeholder="IT-OPS-04" />
                             </FormField>
                             <FormField id="businessOwnerId" label="Business Owner" hint="The primary stakeholder for this asset">
-                                <select id="businessOwnerId" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={assetFormData.businessOwnerId} onChange={(e) => handleAssetChange('businessOwnerId', e.target.value)}>
-                                    <option value="">Select owner...</option>
-                                    {users.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
-                                </select>
+                                <UserSelect
+                                    id="businessOwnerId"
+                                    users={users}
+                                    value={assetFormData.businessOwnerId || null}
+                                    onChange={(userId) => handleAssetChange('businessOwnerId', userId === null ? '' : String(userId))}
+                                    placeholder="Select owner..."
+                                    clearable
+                                />
                             </FormField>
                         </div>
 
@@ -1145,18 +1177,21 @@ const AssetManagement: React.FC = () => {
                                         onBlur={() => handleAssetBlur('purchaseCost')}
                                         placeholder="0.00"
                                     />
+                                    {renderDefaultCurrencyHint(assetFormData.purchaseCost)}
                                 </FormField>
 
                                 <FormField id="currency" label="Currency" hint="Currency this asset was purchased in">
                                     <select id="currency" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={assetFormData.currency} onChange={(e) => handleAssetChange('currency', e.target.value)}>
-                                        {CURRENCY_OPTIONS.map(code => <option key={code} value={code}>{code}</option>)}
+                                        {availableCurrencies.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}
                                     </select>
                                 </FormField>
 
                                 <FormField id="vendor" label="Vendor" hint="The supplier of this asset">
                                     <select id="vendor" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={assetFormData.vendor} onChange={(e) => handleAssetChange('vendor', e.target.value)}>
                                         <option value="">Select vendor...</option>
-                                        {masterVendors.map(v => <option key={v.id} value={v.name}>{v.name}</option>)}
+                                        {masterVendors
+                                            .filter(v => v.isActive !== false || v.name === assetFormData.vendor)
+                                            .map(v => <option key={v.id} value={v.name}>{v.isActive === false ? `${v.name} (Inactive)` : v.name}</option>)}
                                     </select>
                                 </FormField>
                             </div>
@@ -1167,7 +1202,7 @@ const AssetManagement: React.FC = () => {
                             <div className="grid grid-cols-4 gap-4">
                                 <FormField
                                     id="vendorMonthlyRent"
-                                    label={`Monthly Rent (${currencySymbol})`}
+                                    label={`Monthly Rent (${formCurrencySymbol})`}
                                     hint="Reoccurring monthly rental fee"
                                 >
                                     <Input
@@ -1177,6 +1212,13 @@ const AssetManagement: React.FC = () => {
                                         onChange={(e) => handleAssetChange('vendorMonthlyRent', e.target.value)}
                                         placeholder="0.00"
                                     />
+                                    {renderDefaultCurrencyHint(assetFormData.vendorMonthlyRent)}
+                                </FormField>
+
+                                <FormField id="currency" label="Currency" hint="Currency the rent is billed in">
+                                    <select id="currency" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={assetFormData.currency} onChange={(e) => handleAssetChange('currency', e.target.value)}>
+                                        {availableCurrencies.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}
+                                    </select>
                                 </FormField>
 
                                 <FormField id="receivedFromVendorDate" label="Rental Start Date" hint="When the rental tenure began">
@@ -1190,7 +1232,9 @@ const AssetManagement: React.FC = () => {
                                 <FormField id="vendor" label="Vendor" hint="The supplier of this asset">
                                     <select id="vendor" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={assetFormData.vendor} onChange={(e) => handleAssetChange('vendor', e.target.value)}>
                                         <option value="">Select vendor...</option>
-                                        {masterVendors.map(v => <option key={v.id} value={v.name}>{v.name}</option>)}
+                                        {masterVendors
+                                            .filter(v => v.isActive !== false || v.name === assetFormData.vendor)
+                                            .map(v => <option key={v.id} value={v.name}>{v.isActive === false ? `${v.name} (Inactive)` : v.name}</option>)}
                                     </select>
                                 </FormField>
                             </div>
@@ -1233,8 +1277,9 @@ const AssetManagement: React.FC = () => {
                                     min="1"
                                 />
                             </FormField>
-                            <FormField id="salvageValue" label={`Salvage Value (${currencySymbol})`} hint="Estimated value at end of life">
+                            <FormField id="salvageValue" label={`Salvage Value (${formCurrencySymbol})`} hint="Estimated value at end of life">
                                 <Input type="number" step="0.01" value={assetFormData.salvageValue} onChange={(e) => handleAssetChange('salvageValue', e.target.value)} placeholder="0.00" />
+                                {renderDefaultCurrencyHint(assetFormData.salvageValue)}
                             </FormField>
                         </div>
 
@@ -1320,7 +1365,7 @@ const AssetManagement: React.FC = () => {
                     <DialogHeader><DialogTitle>Deploy Asset</DialogTitle></DialogHeader>
                     <form onSubmit={handleDeploy} className="space-y-4 pt-4">
                         {allowedTargetTypes.length > 1 && (
-                            <FormField id="targetType" label="Assignment Target" required error={deployErrors.targetType}>
+                            <FormField id="targetType" label="Assignment Target" required={isDeployFieldRequired('targetType')} error={deployErrors.targetType}>
                                 <select
                                     id="targetType"
                                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -1336,20 +1381,22 @@ const AssetManagement: React.FC = () => {
                             <FormField
                                 id="userId"
                                 label="Assign To User"
-                                required
+                                required={isDeployFieldRequired('userId')}
                                 error={deployErrors.userId}
                                 hint="Select the staff member receiving this asset"
                             >
-                                <select
+                                <UserSelect
                                     id="userId"
-                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                    value={deployFormData.userId}
-                                    onChange={(e) => handleDeployChange('userId', e.target.value)}
-                                    onBlur={() => handleDeployBlur('userId')}
-                                >
-                                    <option value="">Select user...</option>
-                                    {users.map(user => <option key={user.id} value={user.id}>{user.firstName} {user.lastName} ({user.email})</option>)}
-                                </select>
+                                    users={users}
+                                    value={deployFormData.userId || null}
+                                    onChange={(userId) => {
+                                        handleDeployChange('userId', userId === null ? '' : String(userId));
+                                        // Preserves the original onBlur behaviour: picking a value
+                                        // marks the field touched so validation can surface.
+                                        handleDeployBlur('userId');
+                                    }}
+                                    placeholder="Select user..."
+                                />
                             </FormField>
                         )}
 
@@ -1366,8 +1413,19 @@ const AssetManagement: React.FC = () => {
                                         <Input value={deployFormData.floor} onChange={(e) => handleDeployChange('floor', e.target.value)} placeholder="3rd Floor" />
                                     </FormField>
                                 </div>
-                                <FormField id="location" label="Specific Location" hint="Room or desk number">
-                                    <Input value={deployFormData.location} onChange={(e) => handleDeployChange('location', e.target.value)} placeholder="Room 302 / Desk 12" />
+                                <FormField
+                                    id="location"
+                                    label="Specific Location"
+                                    required={isDeployFieldRequired('location')}
+                                    error={deployErrors.location}
+                                    hint="Room or desk number"
+                                >
+                                    <Input
+                                        value={deployFormData.location}
+                                        onChange={(e) => handleDeployChange('location', e.target.value)}
+                                        onBlur={() => handleDeployBlur('location')}
+                                        placeholder="Room 302 / Desk 12"
+                                    />
                                 </FormField>
                             </div>
                         )}
@@ -1378,6 +1436,7 @@ const AssetManagement: React.FC = () => {
                             required
                             error={deployErrors.deploymentDate}
                         >
+                            {/* required is hardcoded: this is a UI-only rule (see DEPLOY_FORM_RULES) */}
                             <Input
                                 type="date"
                                 value={deployFormData.deploymentDate}
@@ -1389,7 +1448,7 @@ const AssetManagement: React.FC = () => {
                         <FormField
                             id="deployReason"
                             label="Reason for Deployment"
-                            required
+                            required={isDeployFieldRequired('reason')}
                             error={deployErrors.reason}
                             hint="Explain why this asset is being deployed"
                         >

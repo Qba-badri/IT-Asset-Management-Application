@@ -55,12 +55,15 @@ import { StockLedger } from '../../entities/stock-ledger.entity';
 import { AuditLog } from '../../entities/audit-log.entity';
 import { AuditEvent, AuditAction } from '../../entities/audit-event.entity';
 import { SettingsService } from '../settings/settings.service';
+import { CurrenciesService } from '../currencies/currencies.service';
 
 // ─────────────────────────────────────────────
 //  Shared filter interface used across all KPI methods.
 //  Extend this interface if you need new filter dimensions.
 // ─────────────────────────────────────────────
 export interface DashboardFilters {
+  /** ISO code to express monetary aggregates in; defaults to the org DEFAULT_CURRENCY setting */
+  displayCurrency?: string;
   startDate?: string;
   endDate?: string;
   departmentId?: number;
@@ -69,6 +72,17 @@ export interface DashboardFilters {
   brandId?: number;
   vendorId?: number;
   status?: string;
+}
+
+// ─────────────────────────────────────────────
+//  Dashboard data-scope tiers (see AnalyticsService.resolveScope).
+// ─────────────────────────────────────────────
+export type ScopeLevel = 'global' | 'department' | 'self';
+
+export interface DashboardScope {
+  level: ScopeLevel;
+  userId: number;
+  departmentId: number | null;
 }
 
 @Injectable()
@@ -126,30 +140,29 @@ export class AnalyticsService {
     private auditEventRepository: Repository<AuditEvent>,
 
     private settingsService: SettingsService,
+
+    private currenciesService: CurrenciesService,
   ) {}
 
   // ─────────────────────────────────────────────
   //  PRIVATE: Converts a list of { currency, total } subtotals
   //  (e.g. from a `GROUP BY currency` query) into a single number
-  //  expressed in the org's configured display currency, using the
-  //  manually-maintained rate table in system_settings.
-  //  Rate semantics: EXCHANGE_RATES[code] = "1 [code] = X INR".
+  //  expressed in the requested display currency (falling back to the
+  //  org's DEFAULT_CURRENCY setting), using the admin-maintained
+  //  currency_rates table.
+  //  Rate semantics: rateToBase = "1 [code] = X INR".
   // ─────────────────────────────────────────────
   private async sumInDisplayCurrency(
     subtotals: { currency: string; total: string | number }[],
+    requestedCurrency?: string,
   ): Promise<number> {
-    const [displayCurrencySetting, ratesSetting] = await Promise.all([
-      this.settingsService.getSetting('DEFAULT_CURRENCY'),
-      this.settingsService.getSetting('EXCHANGE_RATES'),
+    const [displayCurrencySetting, rates] = await Promise.all([
+      requestedCurrency
+        ? Promise.resolve(requestedCurrency)
+        : this.settingsService.getSetting('DEFAULT_CURRENCY'),
+      this.currenciesService.getRatesMap(),
     ]);
     const displayCurrency = displayCurrencySetting || 'INR';
-    let rates: Record<string, number> = {};
-    try {
-      rates = ratesSetting ? JSON.parse(ratesSetting) : {};
-    } catch {
-      rates = {};
-    }
-    rates.INR = 1;
 
     const rateFor = (code: string) => rates[code] ?? 1;
 
@@ -159,6 +172,158 @@ export class AnalyticsService {
       const converted = displayCurrency === 'INR' ? amountInInr : amountInInr / rateFor(displayCurrency);
       return sum + converted;
     }, 0);
+  }
+
+  // ─────────────────────────────────────────────
+  //  PRIVATE: Resolves the dashboard data-scope tier from the
+  //  authenticated user's permissions (never from role names):
+  //   - 'global'     : holds 'dashboard.view.all' (Admin/IT/Helpdesk/Auditor)
+  //   - 'department' : holds 'dashboard.view.department' (Manager) — sees only
+  //                    records belonging to users in their own department.
+  //   - 'self'       : neither (Standard User) — sees only their own records.
+  //  A missing user (internal/report calls) is treated as global.
+  // ─────────────────────────────────────────────
+  private resolveScope(user?: any): DashboardScope {
+    if (!user) return { level: 'global', userId: 0, departmentId: null };
+    const perms: string[] = user.permissions || [];
+    const level: ScopeLevel = perms.includes('dashboard.view.all')
+      ? 'global'
+      : perms.includes('dashboard.view.department')
+        ? 'department'
+        : 'self';
+    return {
+      level,
+      userId: user.id,
+      departmentId: user.departmentId ?? null,
+    };
+  }
+
+  /** True when the scope restricts data to a subset (department or self). */
+  private isScoped(scope: DashboardScope): boolean {
+    return scope.level !== 'global';
+  }
+
+  // ─────────────────────────────────────────────
+  //  PRIVATE: Applies the resolved data-scope to a QueryBuilder for a
+  //  known entity alias. Global scope adds nothing. Department/self add
+  //  the appropriate WHERE/JOIN so a user can never see other people's
+  //  (or other departments') records.
+  // ─────────────────────────────────────────────
+  private applyScope(
+    query: SelectQueryBuilder<any>,
+    alias: string,
+    scope: DashboardScope,
+  ): SelectQueryBuilder<any> {
+    if (scope.level === 'global') return query;
+
+    const uid = scope.userId;
+    const dept = scope.departmentId;
+
+    switch (alias) {
+      case 'asset':
+        // Asset has no departmentId — a department is derived from the
+        // assigned user. Both tiers therefore exclude the unassigned pool.
+        if (scope.level === 'self') {
+          query.andWhere('asset.assignedToId = :scopeUid', { scopeUid: uid });
+        } else {
+          query
+            .innerJoin('asset.assignedTo', 'scopeUser')
+            .andWhere('scopeUser.departmentId = :scopeDept', { scopeDept: dept });
+        }
+        break;
+
+      case 'license':
+        // Subquery (not a join) so aggregate queries like SUM(usedSeats) aren't
+        // inflated by a license having multiple matching assignments.
+        if (scope.level === 'self') {
+          query.andWhere(
+            'license.id IN (SELECT la.license_id FROM license_assignments la WHERE la.user_id = :scopeUid)',
+            { scopeUid: uid },
+          );
+        } else {
+          query.andWhere(
+            'license.id IN (SELECT la.license_id FROM license_assignments la ' +
+              'INNER JOIN users u ON u.id = la.user_id WHERE u.department_id = :scopeDept)',
+            { scopeDept: dept },
+          );
+        }
+        break;
+
+      case 'assign':
+      case 'a':
+        // Assignment carries both assigneeId and a real departmentId FK.
+        if (scope.level === 'self') {
+          query.andWhere(`${alias}.assigneeId = :scopeUid`, { scopeUid: uid });
+        } else {
+          query.andWhere(`${alias}.departmentId = :scopeDept`, { scopeDept: dept });
+        }
+        break;
+
+      case 'log':
+        // Legacy audit_log — scope by the acting user for both tiers
+        // (no department linkage on this table).
+        query.andWhere('log.userId = :scopeUid', { scopeUid: uid });
+        break;
+    }
+
+    return query;
+  }
+
+  // ─────────────────────────────────────────────
+  //  PRIVATE: Applies the resolved data-scope to an audit_events query.
+  //  self       → events the user performed (actorId)
+  //  department → events performed by users in the same department
+  // ─────────────────────────────────────────────
+  private applyAuditScope(
+    query: SelectQueryBuilder<any>,
+    alias: string,
+    scope: DashboardScope,
+  ): SelectQueryBuilder<any> {
+    if (scope.level === 'global') return query;
+    if (scope.level === 'self') {
+      query.andWhere(`${alias}.actorId = :scopeUid`, { scopeUid: scope.userId });
+    } else {
+      query
+        .innerJoin(`${alias}.actor`, 'scopeActor')
+        .andWhere('scopeActor.departmentId = :scopeDept', { scopeDept: scope.departmentId });
+    }
+    return query;
+  }
+
+  // ─────────────────────────────────────────────
+  //  PRIVATE: Scopes an inventory_assignments query. The department FK lives
+  //  on the assignee, so department scope joins through the user (the entity's
+  //  own `department` column is free-text and unreliable).
+  // ─────────────────────────────────────────────
+  private scopeInventoryAssignment(
+    query: SelectQueryBuilder<any>,
+    scope: DashboardScope,
+    alias = 'ia',
+  ): SelectQueryBuilder<any> {
+    if (scope.level === 'global') return query;
+    if (scope.level === 'self') {
+      query.andWhere(`${alias}.userId = :scopeUid`, { scopeUid: scope.userId });
+    } else {
+      query
+        .innerJoin(User, 'scopeIaUser', `scopeIaUser.id = ${alias}.userId`)
+        .andWhere('scopeIaUser.departmentId = :scopeDept', { scopeDept: scope.departmentId });
+    }
+    return query;
+  }
+
+  // ─────────────────────────────────────────────
+  //  PRIVATE: User count consistent with the data scope.
+  //   global → all active accounts; department → accounts in the department;
+  //   self → just the one user.
+  // ─────────────────────────────────────────────
+  private async scopedUserCount(scope: DashboardScope): Promise<number> {
+    if (scope.level === 'self') return 1;
+    if (scope.level === 'department') {
+      return this.userRepository.count({
+        where: { departmentId: scope.departmentId, deletedAt: null },
+      });
+    }
+    return this.userRepository.count({ where: { deletedAt: null } });
   }
 
   // ─────────────────────────────────────────────
@@ -173,18 +338,8 @@ export class AnalyticsService {
     filters?: DashboardFilters,
     user?: any,
   ): SelectQueryBuilder<any> {
-    // Role-based data scoping — non-Admin users see only their own data
-    if (user && user.role?.name !== 'Admin') {
-      if (alias === 'asset') {
-        query.andWhere(`${alias}.assignedToId = :userId`, { userId: user.id });
-      } else if (alias === 'license') {
-        query.innerJoin(`${alias}.assignments`, 'userAssign', 'userAssign.userId = :userId', { userId: user.id });
-      } else if (alias === 'assign') {
-        query.andWhere(`${alias}.assigneeId = :userId`, { userId: user.id });
-      } else if (alias === 'log') {
-        query.andWhere(`${alias}.userId = :userId`, { userId: user.id });
-      }
-    }
+    // Permission-based data scoping — see resolveScope() for the tiers.
+    this.applyScope(query, alias, this.resolveScope(user));
 
     if (!filters) return query;
 
@@ -234,6 +389,8 @@ export class AnalyticsService {
   //  Also: totalUsers, totalInventoryItems, totalAssetValue
   // ─────────────────────────────────────────────
   async getGlobalSummary(filters: DashboardFilters = {}, user?: any) {
+    const scope = this.resolveScope(user);
+
     const totalAssets = await this.applyFilters(
       this.assetRepository.createQueryBuilder('asset'),
       'asset', filters, user,
@@ -244,27 +401,27 @@ export class AnalyticsService {
       'license', filters, user,
     ).getCount();
 
-    const totalInventoryItems = await this.applyFilters(
-      this.inventoryItemRepository.createQueryBuilder('item'),
-      'item', filters, user,
-    ).getCount();
+    // Consumable inventory has no per-user/department owner — hide from
+    // non-global scopes rather than leak an org-wide count.
+    const totalInventoryItems = this.isScoped(scope)
+      ? 0
+      : await this.inventoryItemRepository.createQueryBuilder('item').getCount();
 
-    const totalUsers = user?.role?.name === 'Admin'
-      ? await this.userRepository.count()
-      : 1;
+    const totalUsers = await this.scopedUserCount(scope);
 
     // Active assignments = bulk consumable assignments out + serialized assets deployed
     const activeBulkQuery = this.inventoryAssignmentRepository
       .createQueryBuilder('ia')
       .where('ia.status = :s', { s: InventoryAssignmentStatus.ASSIGNED });
-    const activeSerializedQuery = this.assetRepository
-      .createQueryBuilder('asset')
-      .where('asset.status = :s', { s: AssetStatus.DEPLOYED })
-      .andWhere('asset.deletedAt IS NULL');
-    if (user && user.role?.name !== 'Admin') {
-      activeBulkQuery.andWhere('ia.userId = :userId', { userId: user.id });
-      activeSerializedQuery.andWhere('asset.assignedToId = :userId', { userId: user.id });
-    }
+    this.scopeInventoryAssignment(activeBulkQuery, scope);
+
+    const activeSerializedQuery = this.applyScope(
+      this.assetRepository
+        .createQueryBuilder('asset')
+        .where('asset.status = :s', { s: AssetStatus.DEPLOYED })
+        .andWhere('asset.deletedAt IS NULL'),
+      'asset', scope,
+    );
     const activeAssignments =
       (await activeBulkQuery.getCount()) + (await activeSerializedQuery.getCount());
 
@@ -278,20 +435,20 @@ export class AnalyticsService {
       .groupBy('asset.currency')
       .getRawMany();
 
-    // Total inventory value = stock quantity × unit cost, grouped by currency
-    const inventoryValueByCurrency = await this.applyFilters(
-      this.stockRepository.createQueryBuilder('s'),
-      's', filters,
-    )
-      .leftJoin('s.catalogItem', 'ci')
-      .select('SUM(s.quantity * ci.unitCost)', 'total')
-      .addSelect('ci.currency', 'currency')
-      .groupBy('ci.currency')
-      .getRawMany();
+    // Total inventory value = stock quantity × unit cost, grouped by currency.
+    // Org-wide stock — only meaningful (and only shown) at global scope.
+    const inventoryValueByCurrency = this.isScoped(scope)
+      ? []
+      : await this.stockRepository.createQueryBuilder('s')
+          .leftJoin('s.catalogItem', 'ci')
+          .select('SUM(s.quantity * ci.unitCost)', 'total')
+          .addSelect('ci.currency', 'currency')
+          .groupBy('ci.currency')
+          .getRawMany();
 
     const [assetValue, inventoryValue] = await Promise.all([
-      this.sumInDisplayCurrency(assetValueByCurrency),
-      this.sumInDisplayCurrency(inventoryValueByCurrency),
+      this.sumInDisplayCurrency(assetValueByCurrency, filters?.displayCurrency),
+      this.sumInDisplayCurrency(inventoryValueByCurrency, filters?.displayCurrency),
     ]);
 
     return {
@@ -533,7 +690,7 @@ export class AnalyticsService {
     const spendByFrequency: { frequency: string; total: number }[] = [];
     for (const frequency of frequencies) {
       const rows = spendByFrequencyAndCurrency.filter(r => r.frequency === frequency);
-      spendByFrequency.push({ frequency, total: await this.sumInDisplayCurrency(rows) });
+      spendByFrequency.push({ frequency, total: await this.sumInDisplayCurrency(rows, filters?.displayCurrency) });
     }
 
     const getSpend = (freq: string) =>
@@ -578,7 +735,25 @@ export class AnalyticsService {
   //  To track a new transaction type for KPI 8, add another
   //  count query using the appropriate InventoryTransactionType.
   // ─────────────────────────────────────────────
-  async getInventoryKpis(filters: DashboardFilters = {}) {
+  async getInventoryKpis(filters: DashboardFilters = {}, user?: any) {
+    // Consumable inventory/procurement has no per-user or per-department owner,
+    // so a scoped (department/self) user gets nothing org-wide here.
+    if (this.isScoped(this.resolveScope(user))) {
+      return {
+        belowMinStock: 0,
+        outOfStock: 0,
+        allTimeSpend: 0,
+        thisMonthSpend: 0,
+        lastMonthSpend: 0,
+        turnoverThisMonth: 0,
+        turnoverLastMonth: 0,
+        totalStockUnits: 0,
+        availableUnits: 0,
+        lowStockAlerts: 0,
+        distribution: { refundable: 0, nonRefundable: 0 },
+      };
+    }
+
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -641,9 +816,9 @@ export class AnalyticsService {
       .getRawMany();
 
     const [allTimeSpendTotal, thisMonthSpendTotal, lastMonthSpendTotal] = await Promise.all([
-      this.sumInDisplayCurrency(allTimeSpendByCurrency),
-      this.sumInDisplayCurrency(thisMonthSpendByCurrency),
-      this.sumInDisplayCurrency(lastMonthSpendByCurrency),
+      this.sumInDisplayCurrency(allTimeSpendByCurrency, filters?.displayCurrency),
+      this.sumInDisplayCurrency(thisMonthSpendByCurrency, filters?.displayCurrency),
+      this.sumInDisplayCurrency(lastMonthSpendByCurrency, filters?.displayCurrency),
     ]);
 
     // KPI 8: OUT transaction quantity this month (units issued)
@@ -721,64 +896,72 @@ export class AnalyticsService {
   async getAssignmentKpis(filters: DashboardFilters = {}, user?: any) {
     const now = new Date();
     const thirtyDaysAgo = new Date(now); thirtyDaysAgo.setDate(now.getDate() - 30);
-    const isAdmin = !user || user.role?.name === 'Admin';
+    const scope = this.resolveScope(user);
 
-    // Non-Admin users see only assignments made to them
-    const scopeAssignments = (qb: SelectQueryBuilder<InventoryAssignment>) => {
-      if (!isAdmin) qb.andWhere('ia.userId = :userId', { userId: user.id });
+    // Scope helpers. Always applied AFTER the base .where() conditions so the
+    // scope's andWhere/innerJoin is never clobbered by a subsequent .where().
+    const scopeReturns = (qb: SelectQueryBuilder<InventoryReturn>) => {
+      if (scope.level === 'global') return qb;
+      qb.innerJoin('ir.assignment', 'ria');
+      if (scope.level === 'self') {
+        qb.andWhere('ria.userId = :scopeUid', { scopeUid: scope.userId });
+      } else {
+        qb.innerJoin(User, 'riaUser', 'riaUser.id = ria.userId')
+          .andWhere('riaUser.departmentId = :scopeDept', { scopeDept: scope.departmentId });
+      }
       return qb;
     };
-    const scopeReturns = (qb: SelectQueryBuilder<InventoryReturn>) => {
-      if (!isAdmin) {
-        qb.innerJoin('ir.assignment', 'ria').andWhere('ria.userId = :userId', { userId: user.id });
+
+    // Serialized issue/return activity comes from asset audit events; metadata
+    // holds the (previous) assignee id. userMetaKey is an internal literal, not
+    // user input — safe to interpolate.
+    const scopeAssetEvents = (qb: SelectQueryBuilder<AuditEvent>, userMetaKey: string) => {
+      if (scope.level === 'global') return qb;
+      if (scope.level === 'self') {
+        qb.andWhere(`(ev.metadata ->> '${userMetaKey}')::int = :scopeUid`, { scopeUid: scope.userId });
+      } else {
+        qb.andWhere(
+          `(ev.metadata ->> '${userMetaKey}')::int IN (SELECT u.id FROM users u WHERE u.department_id = :scopeDept)`,
+          { scopeDept: scope.departmentId },
+        );
       }
       return qb;
     };
 
     // KPI 9: Bulk consumable assignments currently out
-    const bulkActive = await scopeAssignments(
-      this.inventoryAssignmentRepository.createQueryBuilder('ia'),
-    )
-      .where('ia.status = :s', { s: InventoryAssignmentStatus.ASSIGNED })
-      .getCount();
+    const bulkActive = await this.scopeInventoryAssignment(
+      this.inventoryAssignmentRepository.createQueryBuilder('ia')
+        .where('ia.status = :s', { s: InventoryAssignmentStatus.ASSIGNED }),
+      scope,
+    ).getCount();
 
     // KPI 9: Serialized hardware currently deployed to a user
-    const serializedQuery = this.assetRepository
-      .createQueryBuilder('asset')
-      .where('asset.status = :s', { s: AssetStatus.DEPLOYED })
-      .andWhere('asset.deletedAt IS NULL');
-    if (!isAdmin) {
-      serializedQuery.andWhere('asset.assignedToId = :userId', { userId: user.id });
-    }
-    const serializedActive = await serializedQuery.getCount();
+    const serializedActive = await this.applyScope(
+      this.assetRepository.createQueryBuilder('asset')
+        .where('asset.status = :s', { s: AssetStatus.DEPLOYED })
+        .andWhere('asset.deletedAt IS NULL'),
+      'asset', scope,
+    ).getCount();
 
     const active = bulkActive + serializedActive;
 
     // KPI 10: Active bulk assignments past their expected return date
-    const overdueImplicit = await scopeAssignments(
-      this.inventoryAssignmentRepository.createQueryBuilder('ia'),
-    )
-      .where('ia.status = :s', { s: InventoryAssignmentStatus.ASSIGNED })
-      .andWhere('ia.expectedReturnDate IS NOT NULL')
-      .andWhere('ia.expectedReturnDate < :now', { now })
-      .getCount();
+    const overdueImplicit = await this.scopeInventoryAssignment(
+      this.inventoryAssignmentRepository.createQueryBuilder('ia')
+        .where('ia.status = :s', { s: InventoryAssignmentStatus.ASSIGNED })
+        .andWhere('ia.expectedReturnDate IS NOT NULL')
+        .andWhere('ia.expectedReturnDate < :now', { now }),
+      scope,
+    ).getCount();
 
     const totalOverdue = overdueImplicit;
 
-    // Serialized issue/return activity comes from asset audit events
-    const scopeAssetEvents = (qb: SelectQueryBuilder<AuditEvent>, userMetaKey: string) => {
-      if (!isAdmin) {
-        qb.andWhere(`(ev.metadata ->> '${userMetaKey}')::int = :userId`, { userId: user.id });
-      }
-      return qb;
-    };
-
     // KPI 11: Assignments created in the last 30 days (denominator for return rate)
-    const bulkAssignmentsIn30d = await scopeAssignments(
-      this.inventoryAssignmentRepository.createQueryBuilder('ia'),
-    )
-      .where('ia.createdAt >= :start', { start: thirtyDaysAgo })
-      .getCount();
+    const bulkAssignmentsIn30d = await this.scopeInventoryAssignment(
+      this.inventoryAssignmentRepository.createQueryBuilder('ia')
+        .where('ia.createdAt >= :start', { start: thirtyDaysAgo }),
+      scope,
+    ).getCount();
 
     const serializedIssuesIn30d = await scopeAssetEvents(
       this.auditEventRepository
@@ -793,10 +976,9 @@ export class AnalyticsService {
 
     // KPI 11: Returns processed in the last 30 days (numerator)
     const bulkReturnsIn30d = await scopeReturns(
-      this.inventoryReturnRepository.createQueryBuilder('ir'),
-    )
-      .where('ir.createdAt >= :start', { start: thirtyDaysAgo })
-      .getCount();
+      this.inventoryReturnRepository.createQueryBuilder('ir')
+        .where('ir.createdAt >= :start', { start: thirtyDaysAgo }),
+    ).getCount();
 
     const serializedReturnsIn30d = await scopeAssetEvents(
       this.auditEventRepository
@@ -819,11 +1001,10 @@ export class AnalyticsService {
     const damagedConditions = ['poor', 'damaged', 'lost'];
 
     const bulkDamagedReturns = await scopeReturns(
-      this.inventoryReturnRepository.createQueryBuilder('ir'),
-    )
-      .where('LOWER(ir.condition) IN (:...conditions)', { conditions: damagedConditions })
-      .andWhere('ir.createdAt >= :start', { start: thirtyDaysAgo })
-      .getCount();
+      this.inventoryReturnRepository.createQueryBuilder('ir')
+        .where('LOWER(ir.condition) IN (:...conditions)', { conditions: damagedConditions })
+        .andWhere('ir.createdAt >= :start', { start: thirtyDaysAgo }),
+    ).getCount();
 
     const serializedDamagedReturns = await scopeAssetEvents(
       this.auditEventRepository
@@ -863,27 +1044,44 @@ export class AnalyticsService {
   //  To add new user metrics, add a count query here.
   // ─────────────────────────────────────────────
   async getUserStats(filters: DashboardFilters = {}, user?: any) {
-    const totalUsers = await this.userRepository.count({ where: { deletedAt: null } });
-    const activeUsers = await this.userRepository.count({ where: { isActive: true, deletedAt: null } });
+    const scope = this.resolveScope(user);
 
-    // KPI 16: Unique users who have at least one deployed asset
-    const usersWithAssetsResult = await this.assetRepository
-      .createQueryBuilder('asset')
-      .select('COUNT(DISTINCT asset.assignedToId)', 'count')
-      .where('asset.status = :s', { s: AssetStatus.DEPLOYED })
-      .andWhere('asset.assignedToId IS NOT NULL')
-      .andWhere('asset.deletedAt IS NULL')
-      .getRawOne();
+    const totalUsers = await this.scopedUserCount(scope);
+    const activeUsers =
+      scope.level === 'self'
+        ? 1
+        : scope.level === 'department'
+          ? await this.userRepository.count({
+              where: { isActive: true, departmentId: scope.departmentId, deletedAt: null },
+            })
+          : await this.userRepository.count({ where: { isActive: true, deletedAt: null } });
+
+    // KPI 16: Unique users who have at least one deployed asset (scoped)
+    const usersWithAssetsResult = await this.applyScope(
+      this.assetRepository
+        .createQueryBuilder('asset')
+        .select('COUNT(DISTINCT asset.assignedToId)', 'count')
+        .where('asset.status = :s', { s: AssetStatus.DEPLOYED })
+        .andWhere('asset.assignedToId IS NOT NULL')
+        .andWhere('asset.deletedAt IS NULL'),
+      'asset', scope,
+    ).getRawOne();
 
     const usersWithAssets = parseInt(usersWithAssetsResult?.count || '0');
-    const assetsPerUser =
-      usersWithAssets > 0
-        ? Math.round((await this.assetRepository.count({
-            where: { status: AssetStatus.DEPLOYED },
-          })) / usersWithAssets * 10) / 10
-        : 0;
 
-    // Most active department by assignment volume
+    const deployedCount = await this.applyScope(
+      this.assetRepository
+        .createQueryBuilder('asset')
+        .where('asset.status = :s', { s: AssetStatus.DEPLOYED })
+        .andWhere('asset.deletedAt IS NULL'),
+      'asset', scope,
+    ).getCount();
+
+    const assetsPerUser =
+      usersWithAssets > 0 ? Math.round((deployedCount / usersWithAssets) * 10) / 10 : 0;
+
+    // Most active department by assignment volume. Uses andWhere (not where) so
+    // the scope conditions added by applyFilters are preserved.
     const deptStats = await this.applyFilters(
       this.assignmentRepository.createQueryBuilder('a'),
       'a', filters, user,
@@ -891,7 +1089,7 @@ export class AnalyticsService {
       .leftJoin('a.department', 'd')
       .select('d.name', 'department')
       .addSelect('COUNT(a.id)', 'count')
-      .where('a.departmentId IS NOT NULL')
+      .andWhere('a.departmentId IS NOT NULL')
       .groupBy('d.name')
       .orderBy('count', 'DESC')
       .limit(1)
@@ -965,8 +1163,8 @@ export class AnalyticsService {
       .getRawMany();
 
     const [totalBookValue, totalPurchaseCost] = await Promise.all([
-      this.sumInDisplayCurrency(bookValueByCurrency.map(r => ({ currency: r.currency, total: r.bookValue }))),
-      this.sumInDisplayCurrency(bookValueByCurrency.map(r => ({ currency: r.currency, total: r.purchaseCost }))),
+      this.sumInDisplayCurrency(bookValueByCurrency.map(r => ({ currency: r.currency, total: r.bookValue })), filters?.displayCurrency),
+      this.sumInDisplayCurrency(bookValueByCurrency.map(r => ({ currency: r.currency, total: r.purchaseCost })), filters?.displayCurrency),
     ]);
     const totalDepreciation = totalPurchaseCost - totalBookValue;
 
@@ -983,7 +1181,7 @@ export class AnalyticsService {
       .groupBy('asset.currency')
       .getRawMany();
 
-    const mrcTotal = await this.sumInDisplayCurrency(mrcByCurrency.map(r => ({ currency: r.currency, total: r.mrc })));
+    const mrcTotal = await this.sumInDisplayCurrency(mrcByCurrency.map(r => ({ currency: r.currency, total: r.mrc })), filters?.displayCurrency);
     const rentedCountTotal = mrcByCurrency.reduce((sum, r) => sum + (parseInt(r.rentedCount) || 0), 0);
 
     return {
@@ -1018,29 +1216,38 @@ export class AnalyticsService {
   //  automatically appear in the `byAction` breakdown —
   //  no code change needed here.
   // ─────────────────────────────────────────────
-  async getAuditActivityKpis() {
+  async getAuditActivityKpis(user?: any) {
     const now = new Date();
     const last24h = new Date(now); last24h.setHours(now.getHours() - 24);
+    const scope = this.resolveScope(user);
 
     // Total events in the last 24 hours
-    const total24h = await this.auditEventRepository
-      .createQueryBuilder('ae')
-      .where('ae.createdAt >= :start', { start: last24h })
-      .getCount();
+    const total24h = await this.applyAuditScope(
+      this.auditEventRepository
+        .createQueryBuilder('ae')
+        .where('ae.createdAt >= :start', { start: last24h }),
+      'ae', scope,
+    ).getCount();
 
     // Per-action breakdown for the last 24 hours
-    const byAction = await this.auditEventRepository
-      .createQueryBuilder('ae')
-      .where('ae.createdAt >= :start', { start: last24h })
+    const byAction = await this.applyAuditScope(
+      this.auditEventRepository
+        .createQueryBuilder('ae')
+        .where('ae.createdAt >= :start', { start: last24h }),
+      'ae', scope,
+    )
       .select('ae.action', 'action')
       .addSelect('COUNT(ae.id)', 'count')
       .groupBy('ae.action')
       .getRawMany();
 
     // Per-hour activity count for the sparkline (last 12 hours)
-    const hourlyBreakdown = await this.auditEventRepository
-      .createQueryBuilder('ae')
-      .where('ae.createdAt >= :start', { start: last24h })
+    const hourlyBreakdown = await this.applyAuditScope(
+      this.auditEventRepository
+        .createQueryBuilder('ae')
+        .where('ae.createdAt >= :start', { start: last24h }),
+      'ae', scope,
+    )
       .select("DATE_PART('hour', ae.createdAt)", 'hour')
       .addSelect('COUNT(ae.id)', 'count')
       .groupBy("DATE_PART('hour', ae.createdAt)")
@@ -1048,9 +1255,12 @@ export class AnalyticsService {
       .getRawMany();
 
     // Most recent 10 events (for the activity feed)
-    const recentEvents = await this.auditEventRepository
-      .createQueryBuilder('ae')
-      .leftJoinAndSelect('ae.actor', 'actor')
+    const recentEvents = await this.applyAuditScope(
+      this.auditEventRepository
+        .createQueryBuilder('ae')
+        .leftJoinAndSelect('ae.actor', 'actor'),
+      'ae', scope,
+    )
       .orderBy('ae.createdAt', 'DESC')
       .take(10)
       .getMany();
@@ -1087,7 +1297,7 @@ export class AnalyticsService {
   async getAlerts(filters: DashboardFilters = {}, user?: any) {
     const [assetStats, invKpis, licenseStats, assignKpis] = await Promise.all([
       this.getAssetStats(filters, user),
-      this.getInventoryKpis(filters),
+      this.getInventoryKpis(filters, user),
       this.getLicenseStats(filters, user),
       this.getAssignmentKpis(filters, user),
     ]);
@@ -1128,7 +1338,13 @@ export class AnalyticsService {
   // purchase/assignment/return activity is recorded there, while StockLedger
   // (catalog/AssetUnit subsystem) is normally empty, which made this chart
   // show all zeros.
-  async getStockMovement(filters: DashboardFilters = {}) {
+  async getStockMovement(filters: DashboardFilters = {}, user?: any) {
+    // Org-wide consumable stock movement has no per-user/department owner —
+    // scoped users get an empty chart rather than org-wide data.
+    if (this.isScoped(this.resolveScope(user))) {
+      return { thisMonth: [], lastMonth: [] };
+    }
+
     const now = new Date();
     const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -1196,10 +1412,9 @@ export class AnalyticsService {
       .createQueryBuilder('ae')
       .leftJoinAndSelect('ae.actor', 'actor');
 
-    // Role-based scoping — non-Admin users see only their own actions
-    if (user && user.role?.name !== 'Admin') {
-      query.andWhere('ae.actorId = :userId', { userId: user.id });
-    }
+    // Permission-based scoping — self sees own actions, department sees the
+    // department's actions, global sees everything.
+    this.applyAuditScope(query, 'ae', this.resolveScope(user));
     if (filters.userId) {
       query.andWhere('ae.actorId = :filterUserId', { filterUserId: filters.userId });
     }
@@ -1234,6 +1449,6 @@ export class AnalyticsService {
 
   async getInventoryStats(filters: DashboardFilters = {}, user?: any) {
     // Delegates to getInventoryKpis for backward compatibility
-    return this.getInventoryKpis(filters);
+    return this.getInventoryKpis(filters, user);
   }
 }

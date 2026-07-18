@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  ChevronLeft, ChevronRight, ChevronUp, ChevronDown, FileDown, FileSpreadsheet, Loader2,
+  ChevronRight, ChevronUp, ChevronDown, FileDown, FileSpreadsheet, Loader2,
   ClipboardList, Boxes, Wrench, Archive, Search, Eye, X, SlidersHorizontal,
 } from 'lucide-react';
 import { auditReportService, AuditReportEntry, AuditReportModule, AuditReportQuery, AuditReportStats } from '../../services/auditReportService';
 import { useToast } from '../../context/ToastContext';
 import { PageHeader } from '../../components/shared/PageHeader';
+import { Pagination } from "../../components/shared/Pagination";
 import { StatCard } from '../../components/shared/StatCard';
 import { Card, CardContent } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
@@ -30,7 +31,6 @@ const TABS: { key: TabKey; label: string; module?: AuditReportModule }[] = [
   { key: 'inventory', label: 'Inventory Audit', module: 'Inventory' },
 ];
 
-const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 function entityCell(e: AuditReportEntry): { name: string; code: string } {
   const type = e.entityType.replace(/_/g, ' ');
@@ -164,19 +164,6 @@ const AuditReportPage: React.FC = () => {
   };
 
   const hasActiveFilters = !!(search || actionFilter || startDate || endDate || entityTypeFilter);
-
-  const pageNumbers = useMemo(() => {
-    const pages: (number | '...')[] = [];
-    const windowSize = 1;
-    for (let i = 1; i <= totalPages; i++) {
-      if (i === 1 || i === totalPages || Math.abs(i - page) <= windowSize) {
-        pages.push(i);
-      } else if (pages[pages.length - 1] !== '...') {
-        pages.push('...');
-      }
-    }
-    return pages;
-  }, [totalPages, page]);
 
   return (
     <div className="space-y-6">
@@ -367,40 +354,14 @@ const AuditReportPage: React.FC = () => {
             </table>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t">
-            <span className="text-sm text-muted-foreground">
-              Showing {total === 0 ? 0 : (page - 1) * pageSize + 1} to {Math.min(page * pageSize, total)} of {total} entries
-            </span>
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" size="icon" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
-                <ChevronLeft className="w-4 h-4" />
-              </Button>
-              {pageNumbers.map((p, i) => p === '...' ? (
-                <span key={`ellipsis-${i}`} className="px-2 text-muted-foreground">...</span>
-              ) : (
-                <Button
-                  key={p}
-                  variant={p === page ? 'default' : 'ghost'}
-                  size="sm"
-                  className="min-w-[32px]"
-                  onClick={() => setPage(p)}
-                >
-                  {p}
-                </Button>
-              ))}
-              <Button variant="ghost" size="icon" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
-                <ChevronRight className="w-4 h-4" />
-              </Button>
-              <Select value={String(pageSize)} onValueChange={(v) => { setPageSize(Number(v)); setPage(1); }}>
-                <SelectTrigger className="w-[110px]"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {PAGE_SIZE_OPTIONS.map(size => (
-                    <SelectItem key={size} value={String(size)}>{size} / page</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+          <Pagination
+            currentPage={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            totalItems={total}
+            pageSize={pageSize}
+            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          />
         </CardContent>
       </Card>
 

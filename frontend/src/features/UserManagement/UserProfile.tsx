@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
     User, Mail, Shield, Calendar, MapPin,
-    Camera, Check, Loader2, Monitor, KeyRound
+    Camera, Check, Loader2, Monitor, KeyRound, Package
 } from 'lucide-react';
 import { authService } from '../../services/authService';
 import { userService, User as UserType } from '../../services/userService';
@@ -63,7 +63,7 @@ const UserProfile: React.FC = () => {
                 location: data.location || '',
                 phoneNumber: data.phoneNumber || ''
             });
-            loadInventory(data.id);
+            loadInventory();
         } catch (error) {
             showToast('Failed to load profile', 'error');
         } finally {
@@ -71,10 +71,11 @@ const UserProfile: React.FC = () => {
         }
     };
 
-    const loadInventory = async (userId: number) => {
+    const loadInventory = async () => {
         try {
             setLoadingInventory(true);
-            const data = await userService.getUserInventory(userId);
+            // Self-service endpoint — works for every role, including Standard User.
+            const data = await userService.getMyInventory();
             setInventory(data);
         } catch (error) {
             console.error('Failed to load user inventory', error);
@@ -268,7 +269,7 @@ const UserProfile: React.FC = () => {
                             <CardTitle className="text-lg">Portfolio Summary</CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-6">
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-3 gap-4">
                                 <div className="space-y-1 p-3 rounded-lg bg-blue-50 border border-blue-100">
                                     <Monitor className="h-5 w-5 text-blue-600 mb-1" />
                                     <p className="text-2xl font-bold text-blue-700">{inventory?.assignedAssets?.length || 0}</p>
@@ -278,6 +279,11 @@ const UserProfile: React.FC = () => {
                                     <KeyRound className="h-5 w-5 text-emerald-600 mb-1" />
                                     <p className="text-2xl font-bold text-emerald-700">{inventory?.licenseAssignments?.length || 0}</p>
                                     <p className="text-xs text-emerald-600 font-medium uppercase tracking-wider">Licenses</p>
+                                </div>
+                                <div className="space-y-1 p-3 rounded-lg bg-amber-50 border border-amber-100">
+                                    <Package className="h-5 w-5 text-amber-600 mb-1" />
+                                    <p className="text-2xl font-bold text-amber-700">{inventory?.inventoryAssignments?.length || 0}</p>
+                                    <p className="text-xs text-amber-600 font-medium uppercase tracking-wider">Inventory</p>
                                 </div>
                             </div>
 
@@ -362,6 +368,112 @@ const UserProfile: React.FC = () => {
                                         <TableRow>
                                             <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
                                                 No assets are currently assigned to you.
+                                            </TableCell>
+                                        </TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        )}
+                    </CardContent>
+                </Card>
+
+                {/* Licenses Table */}
+                <Card className="lg:col-span-3">
+                    <CardHeader>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                            <KeyRound className="h-5 w-5" />
+                            My Licenses
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                        {loadingInventory ? (
+                            <div className="flex h-[160px] items-center justify-center">
+                                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                            </div>
+                        ) : (
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Software</TableHead>
+                                        <TableHead>Product Key</TableHead>
+                                        <TableHead>Expiry Date</TableHead>
+                                        <TableHead>Assigned Date</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {(inventory?.licenseAssignments || []).length > 0 ? (
+                                        inventory?.licenseAssignments?.map((la: any) => (
+                                            <TableRow key={la.id}>
+                                                <TableCell className="font-medium">
+                                                    {la.license?.softwareName || la.license?.planName || '-'}
+                                                </TableCell>
+                                                <TableCell className="font-mono text-sm text-muted-foreground">
+                                                    {la.license?.productKey || '-'}
+                                                </TableCell>
+                                                <TableCell className="text-sm">
+                                                    {la.license?.expiryDate ? new Date(la.license.expiryDate).toLocaleDateString() : 'N/A'}
+                                                </TableCell>
+                                                <TableCell className="text-sm">
+                                                    {la.assignedAt ? new Date(la.assignedAt).toLocaleDateString() : 'N/A'}
+                                                </TableCell>
+                                            </TableRow>
+                                        ))
+                                    ) : (
+                                        <TableRow>
+                                            <TableCell colSpan={4} className="text-center py-12 text-muted-foreground">
+                                                No licenses are currently assigned to you.
+                                            </TableCell>
+                                        </TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        )}
+                    </CardContent>
+                </Card>
+
+                {/* Inventory Table */}
+                <Card className="lg:col-span-3">
+                    <CardHeader>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                            <Package className="h-5 w-5" />
+                            My Inventory
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                        {loadingInventory ? (
+                            <div className="flex h-[160px] items-center justify-center">
+                                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                            </div>
+                        ) : (
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Item</TableHead>
+                                        <TableHead>Quantity</TableHead>
+                                        <TableHead>Assigned Date</TableHead>
+                                        <TableHead>Expected Return</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {(inventory?.inventoryAssignments || []).length > 0 ? (
+                                        inventory?.inventoryAssignments?.map((ia: any) => (
+                                            <TableRow key={ia.id}>
+                                                <TableCell className="font-medium">
+                                                    {ia.item?.name || ia.item?.itemName || '-'}
+                                                </TableCell>
+                                                <TableCell className="text-sm">{ia.quantity}</TableCell>
+                                                <TableCell className="text-sm">
+                                                    {ia.assignmentDate ? new Date(ia.assignmentDate).toLocaleDateString() : 'N/A'}
+                                                </TableCell>
+                                                <TableCell className="text-sm">
+                                                    {ia.expectedReturnDate ? new Date(ia.expectedReturnDate).toLocaleDateString() : '-'}
+                                                </TableCell>
+                                            </TableRow>
+                                        ))
+                                    ) : (
+                                        <TableRow>
+                                            <TableCell colSpan={4} className="text-center py-12 text-muted-foreground">
+                                                No inventory items are currently assigned to you.
                                             </TableCell>
                                         </TableRow>
                                     )}

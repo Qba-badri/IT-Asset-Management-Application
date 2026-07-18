@@ -1,8 +1,11 @@
 import {
   Injectable,
+  Logger,
   BadRequestException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { randomInt, randomBytes } from 'crypto';
+import { MailService } from '../mail/mail.service';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -13,8 +16,10 @@ import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { UpdateProfileDto, ChangePasswordDto } from './dto/profile.dto';
 import { AuditEventsService } from '../audit-events/audit-events.service';
 import { AuditAction } from '../../entities/audit-event.entity';
+import { effectivePermissions } from './permission-utils';
 
 @Injectable()
 export class AuthService {
@@ -25,7 +30,18 @@ export class AuthService {
     private passwordResetTokenRepository: Repository<PasswordResetToken>,
     private jwtService: JwtService,
     private auditEventsService: AuditEventsService,
+    private mailService: MailService,
   ) {}
+
+  private readonly logger = new Logger(AuthService.name);
+  private static readonly MAX_OTP_ATTEMPTS = 5;
+  private static readonly OTP_TTL_MS = 15 * 60 * 1000;
+  // Same public response whether or not the account exists (anti-enumeration)
+  private static readonly GENERIC_RESET_RESPONSE = {
+    message:
+      'If an account exists for this email, password reset instructions have been sent.',
+    success: true,
+  };
 
   async login(loginDto: LoginDto) {
     // Load role AND its permissions (ManyToMany - not eager by default)
@@ -35,7 +51,8 @@ export class AuthService {
       relations: ['role', 'role.permissions'],
     });
 
-    if (!user) {
+    // SSO-provisioned accounts have no usable local password
+    if (!user || user.isSsoUser) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
@@ -46,6 +63,10 @@ export class AuthService {
 
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid email or password');
+    }
+
+    if (!user.isActive) {
+      throw new UnauthorizedException('This account has been deactivated');
     }
 
     // Update last login
@@ -79,8 +100,9 @@ export class AuthService {
         role: user.role
           ? { id: user.role.id, name: user.role.name }
           : null,
-        // Include permission slugs so the frontend mirrors the backend PermissionsGuard
-        permissions: user.role?.permissions?.map((p) => p.slug) ?? [],
+        // Include permission slugs so the frontend mirrors the backend PermissionsGuard.
+        // Same active-role/active-permission filtering as JwtStrategy.
+        permissions: effectivePermissions(user),
       },
     };
   }
@@ -90,59 +112,82 @@ export class AuthService {
       where: { email: forgotPasswordDto.email },
     });
 
-    if (!user) {
-      throw new BadRequestException('User not found');
+    // Unknown account or SSO-managed account: return the same generic
+    // response without creating a token, so responses don't reveal whether
+    // (or how) the account exists.
+    if (!user || user.isSsoUser) {
+      return AuthService.GENERIC_RESET_RESPONSE;
     }
 
-    // Generate OTP
-    const otp = this.generateOTP();
-    const token = this.generateRandomToken();
+    // Invalidate any outstanding reset tokens for this user
+    await this.passwordResetTokenRepository.update(
+      { userId: user.id, isUsed: false },
+      { isUsed: true },
+    );
 
-    // Create password reset token
+    const otp = this.generateOTP();
     const resetToken = this.passwordResetTokenRepository.create({
       userId: user.id,
-      token,
-      otp,
-      expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
-      user,
+      token: this.generateRandomToken(),
+      otpHash: await bcrypt.hash(otp, 10),
+      expiresAt: new Date(Date.now() + AuthService.OTP_TTL_MS),
     });
-
     await this.passwordResetTokenRepository.save(resetToken);
 
-    // TODO: Send OTP via email
-    console.log(`OTP for ${user.email}: ${otp}`);
+    try {
+      await this.mailService.sendPasswordResetOtp(user.email, otp);
+    } catch (error) {
+      // Never include the OTP in logs
+      this.logger.error(
+        `Failed to send password reset email to ${user.email}: ${error.message}`,
+      );
+    }
 
-    return {
-      message: 'OTP sent to your email',
-      success: true,
-    };
+    return AuthService.GENERIC_RESET_RESPONSE;
   }
 
-  async verifyOtp(verifyOtpDto: VerifyOtpDto) {
-    const user = await this.usersRepository.findOne({
-      where: { email: verifyOtpDto.email },
-    });
+  /**
+   * Finds the active reset token for the email and checks the OTP against its
+   * bcrypt hash, enforcing expiry and the failed-attempt limit. Throws the
+   * same generic error for every failure mode (anti-enumeration).
+   */
+  private async consumeOtpCheck(email: string, otp: string) {
+    const genericError = new BadRequestException('Invalid or expired OTP');
 
-    if (!user) {
-      throw new BadRequestException('User not found');
+    const user = await this.usersRepository.findOne({ where: { email } });
+    if (!user || user.isSsoUser) {
+      throw genericError;
     }
 
     const resetToken = await this.passwordResetTokenRepository.findOne({
-      where: {
-        userId: user.id,
-        otp: verifyOtpDto.otp,
-        isUsed: false,
-      },
+      where: { userId: user.id, isUsed: false },
+      order: { createdAt: 'DESC' },
     });
 
-    if (!resetToken) {
-      throw new BadRequestException('Invalid OTP');
+    if (
+      !resetToken ||
+      !resetToken.otpHash ||
+      resetToken.expiresAt < new Date() ||
+      resetToken.attempts >= AuthService.MAX_OTP_ATTEMPTS
+    ) {
+      throw genericError;
     }
 
-    if (resetToken.expiresAt < new Date()) {
-      throw new BadRequestException('OTP has expired');
+    const otpMatches = await bcrypt.compare(otp, resetToken.otpHash);
+    if (!otpMatches) {
+      resetToken.attempts += 1;
+      if (resetToken.attempts >= AuthService.MAX_OTP_ATTEMPTS) {
+        resetToken.isUsed = true; // lock the token after too many failures
+      }
+      await this.passwordResetTokenRepository.save(resetToken);
+      throw genericError;
     }
 
+    return { user, resetToken };
+  }
+
+  async verifyOtp(verifyOtpDto: VerifyOtpDto) {
+    await this.consumeOtpCheck(verifyOtpDto.email, verifyOtpDto.otp);
     return {
       message: 'OTP verified successfully',
       success: true,
@@ -150,40 +195,26 @@ export class AuthService {
   }
 
   async resetPassword(resetPasswordDto: ResetPasswordDto) {
-    const user = await this.usersRepository.findOne({
-      where: { email: resetPasswordDto.email },
-    });
+    const { user, resetToken } = await this.consumeOtpCheck(
+      resetPasswordDto.email,
+      resetPasswordDto.otp,
+    );
 
-    if (!user) {
-      throw new BadRequestException('User not found');
-    }
-
-    const resetToken = await this.passwordResetTokenRepository.findOne({
-      where: {
-        userId: user.id,
-        otp: resetPasswordDto.otp,
-        isUsed: false,
-      },
-    });
-
-    if (!resetToken) {
-      throw new BadRequestException('Invalid OTP');
-    }
-
-    if (resetToken.expiresAt < new Date()) {
-      throw new BadRequestException('OTP has expired');
-    }
-
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(resetPasswordDto.newPassword, 10);
-
-    // Update user password
-    user.passwordHash = hashedPassword;
+    user.passwordHash = await bcrypt.hash(resetPasswordDto.newPassword, 10);
+    // Invalidate existing sessions after a password reset
+    user.tokenVersion += 1;
     await this.usersRepository.save(user);
 
-    // Mark token as used
     resetToken.isUsed = true;
     await this.passwordResetTokenRepository.save(resetToken);
+
+    await this.auditEventsService.logEvent({
+      action: AuditAction.UPDATE,
+      entityType: 'user',
+      entityId: user.id,
+      actorId: user.id,
+      metadata: { field: 'password', via: 'password-reset' },
+    });
 
     return {
       message: 'Password reset successfully',
@@ -206,7 +237,7 @@ export class AuthService {
     return result;
   }
 
-  async updateProfile(userId: number, updateDto: any) {
+  async updateProfile(userId: number, updateDto: UpdateProfileDto) {
     const user = await this.usersRepository.findOne({
       where: { id: userId },
     });
@@ -215,9 +246,9 @@ export class AuthService {
       throw new BadRequestException('User not found');
     }
 
+    // Email changes are intentionally not self-service (identity integrity)
     if (updateDto.firstName) user.firstName = updateDto.firstName;
     if (updateDto.lastName) user.lastName = updateDto.lastName;
-    if (updateDto.email) user.email = updateDto.email;
     if (updateDto.settings) user.settings = updateDto.settings;
     if (updateDto.location) user.location = updateDto.location;
     if (updateDto.phoneNumber) user.phoneNumber = updateDto.phoneNumber;
@@ -246,13 +277,19 @@ export class AuthService {
     };
   }
 
-  async changePassword(userId: number, changeDto: any) {
+  async changePassword(userId: number, changeDto: ChangePasswordDto) {
     const user = await this.usersRepository.findOne({
       where: { id: userId },
     });
 
     if (!user) {
       throw new BadRequestException('User not found');
+    }
+
+    if (user.isSsoUser) {
+      throw new BadRequestException(
+        'This account is managed by your identity provider',
+      );
     }
 
     const isPasswordValid = await bcrypt.compare(
@@ -283,10 +320,11 @@ export class AuthService {
   }
 
   private generateOTP(): string {
-    return Math.floor(100000 + Math.random() * 900000).toString();
+    // Cryptographically secure 6-digit code
+    return randomInt(100000, 1000000).toString();
   }
 
   private generateRandomToken(): string {
-    return require('crypto').randomBytes(32).toString('hex');
+    return randomBytes(32).toString('hex');
   }
 }

@@ -20,7 +20,7 @@ import { AssetsService } from './assets.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
-import { CreateAssetDto, UpdateAssetDto, DeployAssetDto, UndeployAssetDto, AssetMaintenanceDto, AssetMaintenanceCompleteDto, AssetDisposeDto } from './dto/asset.dto';
+import { CreateAssetDto, UpdateAssetDto, DeployAssetDto, UndeployAssetDto, AssetMaintenanceDto, AssetMaintenanceCompleteDto, AssetDisposeDto, ConfirmImportDto } from './dto/asset.dto';
 
 @Controller('assets')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -53,17 +53,19 @@ export class AssetsController {
 
   @Post()
   @Permissions('assets.create')
-  async create(@Body() body: CreateAssetDto) {
-    return this.assetsService.create(body, body.performedBy);
+  async create(@Body() body: CreateAssetDto, @Req() req: any) {
+    // Actor is always the authenticated user — never client-supplied
+    return this.assetsService.create(body, req.user.id);
   }
 
   @Put(':id')
   @Permissions('assets.manage')
   async update(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: UpdateAssetDto
+    @Body() body: UpdateAssetDto,
+    @Req() req: any,
   ) {
-    return this.assetsService.update(id, body, body.performedBy);
+    return this.assetsService.update(id, body, req.user.id);
   }
 
   @Post(':id/deploy')
@@ -71,14 +73,15 @@ export class AssetsController {
   async deploy(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: DeployAssetDto,
+    @Req() req: any,
   ) {
-    return this.assetsService.deploy(id, body, body.performedBy);
+    return this.assetsService.deploy(id, body, req.user.id);
   }
 
   @Post(':id/undeploy')
   @Permissions('assets.manage')
-  async undeploy(@Param('id', ParseIntPipe) id: number, @Body() body: UndeployAssetDto) {
-    return this.assetsService.undeploy(id, body.reason, body.condition, body.performedBy);
+  async undeploy(@Param('id', ParseIntPipe) id: number, @Body() body: UndeployAssetDto, @Req() req: any) {
+    return this.assetsService.undeploy(id, body.reason, body.condition, req.user.id);
   }
 
   @Post(':id/maintenance')
@@ -86,28 +89,28 @@ export class AssetsController {
   async scheduleMaintenance(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: AssetMaintenanceDto,
+    @Req() req: any,
   ) {
-    console.log('Schedule Maintenance Body:', body);
-    return this.assetsService.scheduleMaintenance(id, body, body.performedBy);
+    return this.assetsService.scheduleMaintenance(id, body, req.user.id);
   }
 
   @Post(':id/maintenance/complete')
   @Permissions('assets.manage')
   async completeMaintenance(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: AssetMaintenanceCompleteDto
+    @Body() body: AssetMaintenanceCompleteDto,
+    @Req() req: any,
   ) {
-    console.log('Complete Maintenance Body:', body);
-    return this.assetsService.completeMaintenance(id, body, body.performedBy);
+    return this.assetsService.completeMaintenance(id, body, req.user.id);
   }
 
   @Post(':id/depreciation')
   @Permissions('assets.manage')
   async calculateDepreciation(
     @Param('id', ParseIntPipe) id: number,
-    @Body('performedBy') performedBy?: number,
+    @Req() req?: any,
   ) {
-    return this.assetsService.calculateDepreciation(id, performedBy);
+    return this.assetsService.calculateDepreciation(id, req.user.id);
   }
 
   @Get('generate-tag/:category')
@@ -121,12 +124,13 @@ export class AssetsController {
   async dispose(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: AssetDisposeDto,
-    @Body('performedBy') performedBy?: number,
+    @Req() req?: any,
   ) {
-    return this.assetsService.dispose(id, body, performedBy);
+    return this.assetsService.dispose(id, body, req.user.id);
   }
 
   @Post(':id/photos')
+  @Permissions('assets.manage')
   @UseInterceptors(
     FilesInterceptor('photos', 10, {
       storage: diskStorage({
@@ -159,11 +163,13 @@ export class AssetsController {
   }
 
   @Get(':id/photos')
+  @Permissions('assets.view')
   async getPhotos(@Param('id', ParseIntPipe) id: number) {
     return this.assetsService.getPhotos(id);
   }
 
   @Delete(':assetId/photos/:photoId')
+  @Permissions('assets.manage')
   async deletePhoto(
     @Param('assetId', ParseIntPipe) assetId: number,
     @Param('photoId', ParseIntPipe) photoId: number,
@@ -181,8 +187,8 @@ export class AssetsController {
 
   @Post('import/confirm')
   @Permissions('assets.manage')
-  async confirmImport(@Body('assets') assets: any[], @Body('performedBy') performedBy?: number) {
-    return this.assetsService.bulkCreate(assets, performedBy);
+  async confirmImport(@Body() body: ConfirmImportDto, @Req() req: any) {
+    return this.assetsService.bulkCreate(body.assets, req.user.id);
   }
 
   @Delete(':id')

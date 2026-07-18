@@ -4,9 +4,10 @@ import { CategoriesController } from './categories.controller';
 import { CategoriesService } from './categories.service';
 import { Category } from '../../entities/category.entity';
 import { AuthModule } from '../auth/auth.module';
+import { AuditEventsModule } from '../audit-events/audit-events.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Category]), AuthModule],
+  imports: [TypeOrmModule.forFeature([Category]), AuthModule, AuditEventsModule],
   controllers: [CategoriesController],
   providers: [CategoriesService],
   exports: [CategoriesService],

@@ -30,13 +30,39 @@ export class UsersController {
 
   @Get('me')
   async getMe(@Req() req: any) {
-    return this.usersService.findOne(req.user.id);
+    return this.usersService.findOnePublic(req.user.id);
+  }
+
+  // Self-service portfolio (assets, licenses, consumable inventory) for the
+  // authenticated user. No users.view permission required — a Standard User
+  // can always see what is assigned to them. Must be declared before the
+  // ':id/inventory' route so 'me' isn't parsed as a numeric id.
+  @Get('me/inventory')
+  async getMyInventory(@Req() req: any) {
+    return this.usersService.getUserInventory(req.user.id);
   }
 
   @Post()
   @Permissions('users.create')
   async create(@Body() body: CreateUserDto) {
     return this.usersService.create(body);
+  }
+
+  // Bulk operations take a single request so large selections don't trip the
+  // global rate limiter the way per-row calls do.
+  @Post('bulk-status')
+  @Permissions('users.edit')
+  async bulkSetActive(
+    @Body() body: { ids: number[]; isActive: boolean },
+    @Req() req: any,
+  ) {
+    return this.usersService.bulkSetActive(body.ids, body.isActive, req.user.id);
+  }
+
+  @Post('bulk-delete')
+  @Permissions('users.delete')
+  async bulkRemove(@Body() body: { ids: number[] }, @Req() req: any) {
+    return this.usersService.bulkRemove(body.ids, req.user.id);
   }
 
   @Put('me')
@@ -46,8 +72,15 @@ export class UsersController {
 
   @Put(':id')
   @Permissions('users.edit')
-  async update(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateUserDto) {
-    return this.usersService.update(id, body);
+  async update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: UpdateUserDto,
+    @Req() req: any,
+  ) {
+    return this.usersService.update(id, body, {
+      id: req.user.id,
+      permissions: req.user.permissions || [],
+    });
   }
 
   @Get(':id/inventory')
@@ -59,7 +92,7 @@ export class UsersController {
   @Get(':id')
   @Permissions('users.view')
   async findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.usersService.findOne(id);
+    return this.usersService.findOnePublic(id);
   }
 
   @Delete(':id')

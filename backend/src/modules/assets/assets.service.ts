@@ -12,8 +12,24 @@ import { AssetHistory, AssetAction } from '../../entities/asset-history.entity';
 import { AssetPhoto } from '../../entities/asset-photo.entity';
 import { User } from '../../entities/user.entity';
 import { Category } from '../../entities/category.entity';
+import { Brand } from '../../entities/brand.entity';
+import { Vendor } from '../../entities/vendor.entity';
 import { AuditEvent, AuditAction } from '../../entities/audit-event.entity';
+import { assertActiveReference } from '../../common/validation/active-reference';
+import { resolveScope } from '../../common/dashboard-scope';
+import { NotificationsService } from '../notifications/notifications.service';
 import * as fs from 'fs';
+
+// Status transitions that warrant a status-change email.
+const NOTIFIABLE_STATUSES = new Set([
+  AssetStatus.MAINTENANCE,
+  AssetStatus.REPAIR,
+  AssetStatus.IN_REPAIR,
+  AssetStatus.LOST,
+  AssetStatus.STOLEN,
+  AssetStatus.DISPOSED,
+  AssetStatus.RETIRED,
+]);
 
 @Injectable()
 export class AssetsService {
@@ -30,6 +46,7 @@ export class AssetsService {
     private categoryRepository: Repository<Category>,
     @InjectRepository(AuditEvent)
     private auditEventRepository: Repository<AuditEvent>,
+    private readonly notificationsService: NotificationsService,
   ) { }
 
   private async logAuditEvent(
@@ -82,9 +99,13 @@ export class AssetsService {
       .leftJoinAndSelect('asset.vendorObj', 'vendorObj')
       .orderBy('asset.createdAt', 'DESC');
 
-    // RBAC: If not Admin, only show assets assigned to the user
-    if (user && user.role?.name !== 'Admin') {
-      query.where('asset.assignedToId = :userId', { userId: user.id });
+    // Permission-based scoping: global sees all, department sees assets held
+    // by department members, self sees only their own assigned assets.
+    const scope = resolveScope(user);
+    if (scope.level === 'self') {
+      query.where('asset.assignedToId = :scopeUid', { scopeUid: scope.userId });
+    } else if (scope.level === 'department') {
+      query.where('assignedTo.departmentId = :scopeDept', { scopeDept: scope.departmentId });
     }
 
     return query.getMany();
@@ -97,15 +118,48 @@ export class AssetsService {
     });
     if (!asset) throw new NotFoundException('Asset not found');
 
-    if (user && user.role?.name !== 'Admin' && asset.assignedToId !== user.id) {
+    const scope = resolveScope(user);
+    if (scope.level === 'self' && asset.assignedToId !== scope.userId) {
+      throw new ForbiddenException('Access denied to this asset');
+    }
+    if (
+      scope.level === 'department' &&
+      asset.assignedTo?.departmentId !== scope.departmentId
+    ) {
       throw new ForbiddenException('Access denied to this asset');
     }
 
     return asset;
   }
 
+  /**
+   * New records cannot reference inactive master data, and updates cannot
+   * change a relationship to an inactive item; retaining the currently
+   * assigned (possibly inactive) value is allowed.
+   */
+  private async assertActiveMasterReferences(data: any, current?: Asset): Promise<void> {
+    const em = this.assetsRepository.manager;
+    await assertActiveReference(em.getRepository(Brand), data.brandId, 'Brand', current?.brandId);
+    await assertActiveReference(em.getRepository(Vendor), data.vendorId, 'Vendor', current?.vendorId);
+
+    // Asset category is stored by name; only a *changed* category is checked.
+    if (data.category && data.category !== current?.category) {
+      const category = await this.categoryRepository
+        .createQueryBuilder('category')
+        .where('LOWER(category.name) = LOWER(:value)', { value: data.category })
+        .getOne();
+      if (category && category.isActive === false) {
+        throw new BadRequestException(
+          `Category "${category.name}" is inactive and cannot be assigned.`,
+        );
+      }
+    }
+  }
+
   async create(data: any, userId?: number, manager?: EntityManager): Promise<Asset> {
     const repo = manager ? manager.getRepository(Asset) : this.assetsRepository;
+
+    await this.assertActiveMasterReferences(data);
 
     // Auto-generate asset tag if not provided
     if (!data.assetTag && data.category) {
@@ -197,6 +251,7 @@ export class AssetsService {
 
   async update(id: number, data: any, userId?: number): Promise<Asset> {
     const asset = await this.findOne(id);
+    await this.assertActiveMasterReferences(data, asset);
     const original = { ...asset };
 
     // Helper: treat empty strings as null for nullable fields
@@ -247,6 +302,16 @@ export class AssetsService {
       });
     } else {
       await this.logAction(id, AssetAction.UPDATED, { userId, changes });
+    }
+
+    if (changes.status && NOTIFIABLE_STATUSES.has(updatedAsset.status)) {
+      await this.notificationsService.notifyStatusChange({
+        assignedUserId: updatedAsset.assignedToId,
+        assetTag: updatedAsset.assetTag,
+        assetName: updatedAsset.name,
+        oldStatus: changes.status.old,
+        newStatus: updatedAsset.status,
+      });
     }
 
     return updatedAsset;
@@ -309,6 +374,14 @@ export class AssetsService {
       location: asset.location,
       reason: data.reason,
     });
+    if (asset.assignedToId) {
+      await this.notificationsService.notifyAssignment({
+        assignedUserId: asset.assignedToId,
+        entityType: 'asset',
+        entityName: `${asset.assetTag} — ${asset.name}`,
+        action: 'assigned',
+      });
+    }
     return savedAsset;
   }
 
@@ -346,6 +419,14 @@ export class AssetsService {
       reason,
       conditionOnReturn: condition,
     });
+    if (previousAssignedToId) {
+      await this.notificationsService.notifyAssignment({
+        assignedUserId: previousAssignedToId,
+        entityType: 'asset',
+        entityName: `${asset.assetTag} — ${asset.name}`,
+        action: 'unassigned',
+      });
+    }
     return savedAsset;
   }
 
@@ -439,6 +520,7 @@ export class AssetsService {
       throw new BadRequestException('Cannot dispose an asset that is currently assigned to a user or location. Please undeploy it first.');
     }
 
+    const oldStatus = asset.status;
     asset.status = AssetStatus.DISPOSED;
     asset.disposalDate = data.disposalDate || new Date();
     asset.disposalMethod = data.disposalMethod;
@@ -450,6 +532,13 @@ export class AssetsService {
     await this.logAction(id, AssetAction.DISPOSED, {
       userId: performedBy,
       notes: data.disposalNotes,
+    });
+    await this.notificationsService.notifyStatusChange({
+      assignedUserId: null,
+      assetTag: savedAsset.assetTag,
+      assetName: savedAsset.name,
+      oldStatus,
+      newStatus: AssetStatus.DISPOSED,
     });
     return savedAsset;
   }
@@ -682,9 +771,14 @@ export class AssetsService {
   }
   async getStatistics(user?: any) {
     const query = this.assetsRepository.createQueryBuilder('asset');
-    
-    if (user && user.role?.name !== 'Admin') {
-      query.where('asset.assignedToId = :userId', { userId: user.id });
+
+    const scope = resolveScope(user);
+    if (scope.level === 'self') {
+      query.where('asset.assignedToId = :scopeUid', { scopeUid: scope.userId });
+    } else if (scope.level === 'department') {
+      query
+        .leftJoin('asset.assignedTo', 'assignedTo')
+        .where('assignedTo.departmentId = :scopeDept', { scopeDept: scope.departmentId });
     }
 
     const assets = await query.getMany();

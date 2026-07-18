@@ -20,6 +20,14 @@ export class InventoryCategory {
     @Column({ type: 'text', nullable: true })
     description: string;
 
+    /**
+     * Soft-deactivation, distinct from deleted_at: a deleted category is
+     * hidden everywhere; an inactive one stays visible in admin screens and
+     * on existing items but is excluded from new selections.
+     */
+    @Column({ name: 'is_active', default: true })
+    isActive: boolean;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 

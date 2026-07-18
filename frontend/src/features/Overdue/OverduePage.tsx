@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { assignmentsService, Assignment } from '../../services/assignmentsService';
 import { useToast } from '../../context/ToastContext';
 import { PageHeader } from '../../components/shared/PageHeader';
+import { Pagination } from '../../components/shared/Pagination';
 import { Card, CardContent } from '../../components/ui/card';
-import { Button } from '../../components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 
 const OverduePage: React.FC = () => {
@@ -13,7 +13,7 @@ const OverduePage: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
-  const pageSize = 25;
+  const [pageSize, setPageSize] = useState(25);
 
   const fetch = useCallback(async () => {
     setLoading(true);
@@ -26,7 +26,7 @@ const OverduePage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page]);
+  }, [page, pageSize]);
 
   useEffect(() => { fetch(); }, [fetch]);
   const totalPages = Math.ceil(total / pageSize);
@@ -74,15 +74,14 @@ const OverduePage: React.FC = () => {
               ))}
             </TableBody>
           </Table>
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t bg-muted/40">
-              <span className="text-sm text-muted-foreground">Page {page} of {totalPages}</span>
-              <div className="flex gap-1">
-                <Button variant="outline" size="icon" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}><ChevronLeft className="w-4 h-4" /></Button>
-                <Button variant="outline" size="icon" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}><ChevronRight className="w-4 h-4" /></Button>
-              </div>
-            </div>
-          )}
+          <Pagination
+            currentPage={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            totalItems={total}
+            pageSize={pageSize}
+            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          />
         </CardContent>
       </Card>
     </div>

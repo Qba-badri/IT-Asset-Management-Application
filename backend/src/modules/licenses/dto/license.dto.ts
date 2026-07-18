@@ -1,8 +1,11 @@
 import { IsString, IsOptional, IsNumber, IsBoolean, IsDate, IsNotEmpty, Min } from 'class-validator';
+import { Observe } from '../../../common/validation/observe.decorator';
 import { Type } from 'class-transformer';
 
 export class CreateLicenseDto {
     @IsString()
+    @Observe('Backfill 2026-07: already mandatory, but accepted an empty string')
+    @IsNotEmpty()
     softwareName: string;
 
     @IsString()

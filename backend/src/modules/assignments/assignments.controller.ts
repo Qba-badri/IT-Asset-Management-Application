@@ -12,6 +12,8 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { Permissions } from '../auth/decorators/permissions.decorator';
 import { AssignmentsService } from './assignments.service';
 import {
   IssueDto,
@@ -23,7 +25,7 @@ import {
 } from './dto/assignment.dto';
 
 @Controller('api')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class AssignmentsController {
   constructor(private readonly assignmentsService: AssignmentsService) {}
 
@@ -32,6 +34,7 @@ export class AssignmentsController {
    * Handles issuance for all ReturnPolicy + TrackMode combinations.
    */
   @Post('issue')
+  @Permissions('assets.manage')
   @HttpCode(HttpStatus.CREATED)
   issue(@Body() dto: IssueDto, @Request() req: any) {
     return this.assignmentsService.issue(dto, req.user.id);
@@ -42,6 +45,7 @@ export class AssignmentsController {
    * Handles full and partial returns with condition tracking.
    */
   @Post('return')
+  @Permissions('assets.manage')
   processReturn(@Body() dto: ReturnDto, @Request() req: any) {
     return this.assignmentsService.processReturn(dto, req.user.id);
   }
@@ -51,6 +55,7 @@ export class AssignmentsController {
    * Employee ↔ Employee or Location ↔ Location.
    */
   @Post('transfer')
+  @Permissions('assets.manage')
   transfer(@Body() dto: TransferDto, @Request() req: any) {
     return this.assignmentsService.transfer(dto, req.user.id);
   }
@@ -60,6 +65,7 @@ export class AssignmentsController {
    * Write off lost/damaged items.
    */
   @Post('write-off')
+  @Permissions('assets.manage')
   writeOff(@Body() dto: WriteOffDto, @Request() req: any) {
     return this.assignmentsService.writeOff(dto, req.user.id);
   }
@@ -69,6 +75,7 @@ export class AssignmentsController {
    * Who has what now — active assignments.
    */
   @Get('holdings')
+  @Permissions('assets.view')
   getHoldings(@Query() query: HoldingsQueryDto) {
     return this.assignmentsService.getHoldings(query);
   }
@@ -78,6 +85,7 @@ export class AssignmentsController {
    * Items past their due date.
    */
   @Get('overdue')
+  @Permissions('assets.view')
   getOverdue(@Query() query: OverdueQueryDto) {
     return this.assignmentsService.getOverdue(query);
   }
@@ -87,6 +95,7 @@ export class AssignmentsController {
    * Full assignment detail with return history.
    */
   @Get('assignments/:id')
+  @Permissions('assets.view')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.assignmentsService.findOne(id);
   }

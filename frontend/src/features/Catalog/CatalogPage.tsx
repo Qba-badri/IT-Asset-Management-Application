@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Search, Plus, Edit2, ChevronLeft, ChevronRight
+  Search, Plus, Edit2
 } from 'lucide-react';
 import { catalogService, CatalogItem, CatalogQuery, ReturnPolicy, TrackMode } from '../../services/catalogService';
 import { useToast } from '../../context/ToastContext';
-import { useCurrency, CURRENCY_OPTIONS } from '../../context/CurrencyContext';
+import { useCurrency } from '../../context/CurrencyContext';
 import { FormField } from '../../components/shared/FormField';
 import { useForm } from '../../hooks/useForm';
 import { PageHeader } from '../../components/shared/PageHeader';
+import { Pagination } from '../../components/shared/Pagination';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
@@ -16,7 +17,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 
 const CatalogPage: React.FC = () => {
   const { showToast } = useToast();
-  const { formatCost } = useCurrency();
+  const { formatCost, availableCurrencies, defaultCurrency, convertBetween, formatInCurrency } = useCurrency();
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -24,7 +25,7 @@ const CatalogPage: React.FC = () => {
   const [policyFilter, setPolicyFilter] = useState<ReturnPolicy | ''>('');
   const [trackFilter, setTrackFilter] = useState<TrackMode | ''>('');
   const [page, setPage] = useState(1);
-  const pageSize = 25;
+  const [pageSize, setPageSize] = useState(25);
 
   const [showForm, setShowForm] = useState(false);
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
@@ -45,7 +46,7 @@ const CatalogPage: React.FC = () => {
     brand: '',
     model: '',
     unitCost: 0,
-    currency: 'INR',
+    currency: defaultCurrency,
     reorderPoint: 0,
   }, {
     sku: { required: true },
@@ -69,7 +70,7 @@ const CatalogPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, search, policyFilter, trackFilter]);
+  }, [page, pageSize, search, policyFilter, trackFilter]);
 
   useEffect(() => { fetchItems(); }, [fetchItems]);
 
@@ -103,7 +104,7 @@ const CatalogPage: React.FC = () => {
     <div className="space-y-6">
       <PageHeader title="Catalog" description={`${total} items`}>
         <Button
-          onClick={() => { setShowForm(true); setEditingItem(null); setForm({ sku: '', name: '', description: '', returnPolicy: 'returnable', trackMode: 'serialized', brand: '', model: '', unitCost: 0, currency: 'INR', reorderPoint: 0 }); }}
+          onClick={() => { setShowForm(true); setEditingItem(null); setForm({ sku: '', name: '', description: '', returnPolicy: 'returnable', trackMode: 'serialized', brand: '', model: '', unitCost: 0, currency: defaultCurrency, reorderPoint: 0 }); }}
         >
           <Plus className="w-4 h-4 mr-2" /> Add Item
         </Button>
@@ -182,17 +183,14 @@ const CatalogPage: React.FC = () => {
             </TableBody>
           </Table>
 
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t bg-muted/40">
-              <span className="text-sm text-muted-foreground">
-                Page {page} of {totalPages} ({total} items)
-              </span>
-              <div className="flex gap-1">
-                <Button variant="ghost" size="icon-sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}><ChevronLeft className="w-4 h-4" /></Button>
-                <Button variant="ghost" size="icon-sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}><ChevronRight className="w-4 h-4" /></Button>
-              </div>
-            </div>
-          )}
+          <Pagination
+            currentPage={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            totalItems={total}
+            pageSize={pageSize}
+            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          />
         </CardContent>
       </Card>
 
@@ -298,10 +296,15 @@ const CatalogPage: React.FC = () => {
                 onChange={(e) => handleInputChange('unitCost', parseFloat(e.target.value))}
                 onBlur={() => handleBlur('unitCost')}
               />
+              {form.unitCost > 0 && form.currency !== defaultCurrency && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  ≈ {formatInCurrency(convertBetween(form.unitCost, form.currency, defaultCurrency), defaultCurrency)} {defaultCurrency}
+                </p>
+              )}
             </FormField>
             <FormField id="currency" label="Currency">
               <select id="currency" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={form.currency} onChange={(e) => handleInputChange('currency', e.target.value)}>
-                {CURRENCY_OPTIONS.map(code => <option key={code} value={code}>{code}</option>)}
+                {availableCurrencies.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}
               </select>
             </FormField>
             <FormField

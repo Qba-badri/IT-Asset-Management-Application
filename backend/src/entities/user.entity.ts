@@ -14,6 +14,13 @@ import { PasswordResetToken } from './password-reset-token.entity';
 import { Role } from './role.entity';
 import { Asset } from './asset.entity';
 import { LicenseAssignment } from './license-assignment.entity';
+import { Department } from './department.entity';
+
+export enum UserSource {
+  MANUAL = 'MANUAL',
+  AZURE_AD = 'AZURE_AD',
+  QPEOPLE = 'QPEOPLE',
+}
 
 // ... (existing imports)
 
@@ -66,6 +73,11 @@ export class User {
   @Column({ type: 'json', nullable: true })
   settings: any;
 
+  // True for accounts provisioned via Azure AD sync — they authenticate through
+  // SSO and must not be able to set or reset a local password.
+  @Column({ name: 'is_sso_user', type: 'boolean', default: false })
+  isSsoUser: boolean;
+
   @Column({
     name: 'azure_id',
     type: 'varchar',
@@ -74,6 +86,43 @@ export class User {
     unique: true,
   })
   azureId: string;
+
+  // QPeople HRMS employee id — used to match employees on re-sync.
+  @Column({
+    name: 'qpeople_id',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+    unique: true,
+  })
+  qpeopleId: string;
+
+  @Column({ name: 'department_id', type: 'int', nullable: true })
+  departmentId: number;
+
+  @ManyToOne(() => Department, { eager: true, nullable: true })
+  @JoinColumn({ name: 'department_id' })
+  department: Department;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  designation: string;
+
+  @Column({
+    name: 'reporting_manager_name',
+    type: 'varchar',
+    length: 200,
+    nullable: true,
+  })
+  reportingManagerName: string;
+
+  // Where this account was provisioned from: MANUAL (created in-app),
+  // AZURE_AD or QPEOPLE (directory/HRMS sync).
+  @Column({
+    type: 'varchar',
+    length: 20,
+    default: UserSource.MANUAL,
+  })
+  source: UserSource;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

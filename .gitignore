@@ -55,3 +55,16 @@ docs/archive/
 AzuriteConfig
 __azurite_db_*.json
 __blobstorage__/
+
+# Build artifacts (generated — never commit)
+backend/dist/
+backend/dist_test/
+frontend/build/
+coverage/
+
+# Office temporary lock files
+~$*
+**/~$*
+
+# Uploaded files
+backend/uploads/

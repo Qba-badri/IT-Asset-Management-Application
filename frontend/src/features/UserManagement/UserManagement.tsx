@@ -1,13 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import {
     Plus, Search, Edit, Trash2, History, User, Monitor,
-    KeyRound, Check, Loader2, Cloud, Eye
+    KeyRound, Check, Loader2, Cloud, Eye, ArrowUpDown
 } from 'lucide-react';
-import { userService, User as UserType } from '../../services/userService';
+import { userService, User as UserType, UserSource } from '../../services/userService';
 import { useToast } from '../../context/ToastContext';
 import { rbacService, Role } from '../../services/rbacService';
+import { departmentsService, Department } from '../../services/lookupService';
 import ActionDropdown from '../../components/Common/ActionDropdown';
+import ConfirmModal from '../../components/Common/ConfirmModal';
 import { PageHeader } from '../../components/shared/PageHeader';
+import { StatusToggle } from '../../components/shared/StatusToggle';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
@@ -18,6 +21,7 @@ import { FormField } from '../../components/shared/FormField';
 import { useForm } from '../../hooks/useForm';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs';
+import { Switch } from '../../components/ui/switch';
 import { Avatar, AvatarFallback } from '../../components/ui/avatar';
 import { Pagination } from '../../components/shared/Pagination';
 import UserProfileView from './UserProfileView';
@@ -27,6 +31,8 @@ const UserManagement: React.FC = () => {
     const { showToast } = useToast();
     const [users, setUsers] = useState<UserType[]>([]);
     const [roles, setRoles] = useState<Role[]>([]);
+    const [departments, setDepartments] = useState<Department[]>([]);
+    const [syncingQPeople, setSyncingQPeople] = useState(false);
     const [loading, setLoading] = useState(true);
     const [syncing, setSyncing] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
@@ -42,20 +48,36 @@ const UserManagement: React.FC = () => {
     const [userInventory, setUserInventory] = useState<any>(null);
     // Tracks which user row is currently having its role updated
     const [updatingRoleFor, setUpdatingRoleFor] = useState<number | null>(null);
+    // Tracks which user row is having its active status toggled
+    const [togglingActiveFor, setTogglingActiveFor] = useState<number | null>(null);
+    // Bulk selection for batch activate/deactivate/delete
+    const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+    const [bulkWorking, setBulkWorking] = useState(false);
 
-    // Derive current user's role from localStorage to gate the inline dropdown
-    const currentUserRole: string = React.useMemo(() => {
+    // Derive current user's role/id from localStorage to gate the inline controls
+    const { currentUserRole, currentUserId } = React.useMemo(() => {
         try {
             const stored = localStorage.getItem('user');
             if (stored) {
                 const parsed = JSON.parse(stored);
-                return parsed?.role?.name || '';
+                return {
+                    currentUserRole: parsed?.role?.name || '',
+                    currentUserId: parsed?.id ?? null,
+                };
             }
         } catch {
             // ignore parse errors
         }
-        return '';
+        return { currentUserRole: '', currentUserId: null };
     }, []);
+
+    const [confirmState, setConfirmState] = useState<{
+        show: boolean;
+        title: string;
+        message: string;
+        onConfirm: () => void;
+        type?: 'danger' | 'warning' | 'primary';
+    }>({ show: false, title: '', message: '', onConfirm: () => { } });
 
     const {
         values: formData,
@@ -70,7 +92,9 @@ const UserManagement: React.FC = () => {
         firstName: '',
         lastName: '',
         password: '',
-        roleId: ''
+        roleId: '',
+        departmentId: '',
+        designation: ''
     }, {
         email: { required: true, email: true },
         firstName: { required: true, minLength: 2 },
@@ -100,6 +124,14 @@ const UserManagement: React.FC = () => {
         } finally {
             setLoading(false);
         }
+
+        try {
+            const d = await departmentsService.getAll();
+            setDepartments(d.filter(dep => dep.isActive));
+        } catch (error) {
+            console.error('Failed to load departments:', error);
+            // Non-critical; the department dropdown will just be empty.
+        }
     };
 
     const handleSyncAzure = async () => {
@@ -115,6 +147,19 @@ const UserManagement: React.FC = () => {
         }
     };
 
+    const handleSyncQPeople = async () => {
+        try {
+            setSyncingQPeople(true);
+            const result = await userService.syncQPeopleUsers();
+            showToast(`QPeople sync successful. Users created: ${result.createdCount}, updated: ${result.updatedCount}`, 'success');
+            loadData();
+        } catch (error: any) {
+            showToast(error.response?.data?.message || 'QPeople sync failed', 'error');
+        } finally {
+            setSyncingQPeople(false);
+        }
+    };
+
     const handleViewProfile = (user: UserType) => {
         setViewingProfileId(user.id);
         setShowProfileModal(true);
@@ -122,7 +167,7 @@ const UserManagement: React.FC = () => {
 
     const handleOpenAddModal = () => {
         setIsEditing(false);
-        resetForm({ email: '', firstName: '', lastName: '', password: '', roleId: roles[0]?.id.toString() || '' });
+        resetForm({ email: '', firstName: '', lastName: '', password: '', roleId: roles[0]?.id.toString() || '', departmentId: '', designation: '' });
         setFormError('');
         setShowUserModal(true);
     };
@@ -135,7 +180,9 @@ const UserManagement: React.FC = () => {
             firstName: user.firstName,
             lastName: user.lastName,
             password: '',
-            roleId: user.role?.id.toString() || ''
+            roleId: user.role?.id.toString() || '',
+            departmentId: user.departmentId?.toString() || user.department?.id?.toString() || '',
+            designation: user.designation || ''
         });
         setFormError('');
         setShowUserModal(true);
@@ -146,8 +193,15 @@ const UserManagement: React.FC = () => {
         if (!validateForm()) return;
         setSubmitting(true); setFormError('');
         try {
-            if (isEditing && selectedUser) await userService.updateUser(selectedUser.id, formData);
-            else await userService.createUser(formData);
+            const payload: any = {
+                ...formData,
+                roleId: formData.roleId ? Number(formData.roleId) : undefined,
+                departmentId: formData.departmentId ? Number(formData.departmentId) : null,
+                designation: formData.designation || null,
+            };
+            if (!payload.password) delete payload.password;
+            if (isEditing && selectedUser) await userService.updateUser(selectedUser.id, payload);
+            else await userService.createUser(payload);
             setShowUserModal(false); loadData();
         } catch (error: any) { setFormError(error.response?.data?.message || error.message || 'Action failed'); }
         finally { setSubmitting(false); }
@@ -177,30 +231,182 @@ const UserManagement: React.FC = () => {
         }
     };
 
+    const applyToggleActive = async (user: UserType, next: boolean) => {
+        setTogglingActiveFor(user.id);
+        try {
+            await userService.updateUser(user.id, { isActive: next });
+            setUsers(prev => prev.map(u => (u.id === user.id ? { ...u, isActive: next } : u)));
+            showToast(`User ${next ? 'activated' : 'deactivated'}`, 'success');
+        } catch (error: any) {
+            // 400 self-deactivation / 409 last-active-admin surface here verbatim
+            showToast(error.response?.data?.message || 'Failed to update status', 'error');
+        } finally {
+            setTogglingActiveFor(null);
+        }
+    };
+
+    /** Inline activate/deactivate toggle — admin-only action */
+    const handleToggleActive = (user: UserType) => {
+        const next = !user.isActive;
+        if (next) {
+            applyToggleActive(user, next);
+            return;
+        }
+        setConfirmState({
+            show: true,
+            title: 'Deactivate User',
+            type: 'warning',
+            message: `Deactivate ${user.firstName} ${user.lastName}? Their active sessions will be signed out immediately. The account and its history are preserved and can be reactivated at any time.`,
+            onConfirm: () => {
+                setConfirmState(prev => ({ ...prev, show: false }));
+                applyToggleActive(user, next);
+            },
+        });
+    };
+
+    const toggleSelect = (id: number) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    };
+
+    const toggleSelectPage = (pageUsers: UserType[]) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            const allSelected = pageUsers.every(u => next.has(u.id));
+            pageUsers.forEach(u => allSelected ? next.delete(u.id) : next.add(u.id));
+            return next;
+        });
+    };
+
+    const handleBulkAction = (action: 'activate' | 'deactivate' | 'delete') => {
+        const ids = Array.from(selectedIds);
+        if (ids.length === 0) return;
+        const labels = { activate: 'activate', deactivate: 'deactivate', delete: 'delete' };
+        setConfirmState({
+            show: true,
+            title: `Bulk ${labels[action]}`,
+            type: action === 'activate' ? 'primary' : action === 'deactivate' ? 'warning' : 'danger',
+            message: action === 'deactivate'
+                ? `Deactivate ${ids.length} selected user(s)? Their sessions are signed out immediately; accounts and history are preserved and can be reactivated. Your own account is always skipped.`
+                : `Are you sure you want to ${labels[action]} ${ids.length} selected user(s)?`,
+            onConfirm: () => {
+                setConfirmState(prev => ({ ...prev, show: false }));
+                runBulkAction(action, ids);
+            },
+        });
+    };
+
+    const runBulkAction = async (action: 'activate' | 'deactivate' | 'delete', ids: number[]) => {
+        const labels = { activate: 'activate', deactivate: 'deactivate', delete: 'delete' };
+        setBulkWorking(true);
+        try {
+            const result = action === 'delete'
+                ? await userService.bulkDelete(ids)
+                : await userService.bulkSetActive(ids, action === 'activate');
+            const selfNote = result.skippedSelf ? ' (your own account was skipped)' : '';
+            showToast(`Bulk ${labels[action]}: ${result.affected} user(s) affected${selfNote}`, 'success');
+            setSelectedIds(new Set());
+            loadData();
+        } catch (error: any) {
+            showToast(error.response?.data?.message || `Bulk ${labels[action]} failed`, 'error');
+        } finally {
+            setBulkWorking(false);
+        }
+    };
+
+    const getSourceLabel = (source?: UserSource): string => {
+        const map: Record<string, string> = { AZURE_AD: 'Azure AD', QPEOPLE: 'QPeople', MANUAL: 'Manual' };
+        return map[source || 'MANUAL'] || 'Manual';
+    };
+
+    const getSourceBadgeVariant = (source?: UserSource): any => {
+        const map: Record<string, string> = { AZURE_AD: 'info', QPEOPLE: 'success', MANUAL: 'secondary' };
+        return map[source || 'MANUAL'] || 'secondary';
+    };
+
     const getRoleBadgeVariant = (roleName: string): any => {
         const map: Record<string, string> = { 'Admin': 'destructive', 'Manager': 'info', 'IT Staff': 'success', 'User': 'muted' };
         return map[roleName] || 'secondary';
     };
 
-    const filteredUsers = users.filter(user =>
-        user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.lastName?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    // Filters & sorting
+    const [roleFilter, setRoleFilter] = useState('all');
+    const [sourceFilter, setSourceFilter] = useState('all');
+    const [statusFilter, setStatusFilter] = useState('all');
+    const [departmentFilter, setDepartmentFilter] = useState('all');
+    const [sortBy, setSortBy] = useState<string>('name');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+
+    const handleSort = (column: string) => {
+        if (sortBy === column) {
+            setSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'));
+        } else {
+            setSortBy(column);
+            setSortOrder('asc');
+        }
+    };
+
+    const filteredUsers = React.useMemo(() => {
+        const term = searchTerm.toLowerCase();
+        const sortValue = (u: UserType): string => {
+            switch (sortBy) {
+                case 'email': return u.email || '';
+                case 'role': return u.role?.name || '';
+                case 'department': return u.department?.name || '';
+                case 'designation': return u.designation || '';
+                case 'source': return u.source || 'MANUAL';
+                case 'lastLogin': return u.lastLogin || '';
+                default: return `${u.firstName || ''} ${u.lastName || ''}`;
+            }
+        };
+        return users
+            .filter(user =>
+                (user.email?.toLowerCase().includes(term) ||
+                    user.firstName?.toLowerCase().includes(term) ||
+                    user.lastName?.toLowerCase().includes(term)) &&
+                (roleFilter === 'all' || user.role?.id === Number(roleFilter)) &&
+                (sourceFilter === 'all' || (user.source || 'MANUAL') === sourceFilter) &&
+                (statusFilter === 'all' || (statusFilter === 'active' ? user.isActive : !user.isActive)) &&
+                (departmentFilter === 'all' ||
+                    (departmentFilter === 'none' ? !user.department : user.department?.id === Number(departmentFilter)))
+            )
+            .sort((a, b) => {
+                const cmp = sortValue(a).localeCompare(sortValue(b), undefined, { sensitivity: 'base' });
+                return sortOrder === 'asc' ? cmp : -cmp;
+            });
+    }, [users, searchTerm, roleFilter, sourceFilter, statusFilter, departmentFilter, sortBy, sortOrder]);
 
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 8;
+    const [itemsPerPage, setItemsPerPage] = useState(10);
 
     const paginatedUsers = React.useMemo(() => {
         const start = (currentPage - 1) * itemsPerPage;
         return filteredUsers.slice(start, start + itemsPerPage);
     }, [filteredUsers, currentPage, itemsPerPage]);
 
-    // Reset page to 1 when search changes
+    // Reset page to 1 when search or filters change
     useEffect(() => {
         setCurrentPage(1);
-    }, [searchTerm]);
+    }, [searchTerm, roleFilter, sourceFilter, statusFilter, departmentFilter]);
+
+    /** Clickable sortable column header */
+    const SortableHead: React.FC<{ column: string; children: React.ReactNode }> = ({ column, children }) => (
+        <TableHead>
+            <button
+                type="button"
+                className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+                onClick={() => handleSort(column)}
+            >
+                {children}
+                <ArrowUpDown className={`h-3 w-3 ${sortBy === column ? 'text-primary' : 'text-muted-foreground/50'}`} />
+                {sortBy === column && <span className="sr-only">{sortOrder === 'asc' ? 'ascending' : 'descending'}</span>}
+            </button>
+        </TableHead>
+    );
 
     if (loading) return <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
 
@@ -221,23 +427,60 @@ const UserManagement: React.FC = () => {
 
                     {activeTab === 'users' && (
                         <>
-                            <div className="p-4 border-b flex items-center gap-3">
-                                <div className="relative flex-1 max-w-sm"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input className="pl-9" placeholder="Search users..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
+                            <div className="p-4 border-b flex flex-wrap items-center gap-3">
+                                <div className="relative flex-1 max-w-sm min-w-[200px]"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input className="pl-9" placeholder="Search users..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
+                                <select className="h-9 rounded-md border border-input bg-background px-2 text-sm shadow-sm cursor-pointer" value={roleFilter} onChange={e => setRoleFilter(e.target.value)} aria-label="Filter by role">
+                                    <option value="all">All Roles</option>
+                                    {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                                </select>
+                                <select className="h-9 rounded-md border border-input bg-background px-2 text-sm shadow-sm cursor-pointer" value={departmentFilter} onChange={e => setDepartmentFilter(e.target.value)} aria-label="Filter by department">
+                                    <option value="all">All Departments</option>
+                                    <option value="none">No Department</option>
+                                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                                </select>
+                                <select className="h-9 rounded-md border border-input bg-background px-2 text-sm shadow-sm cursor-pointer" value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} aria-label="Filter by source">
+                                    <option value="all">All Sources</option>
+                                    <option value="MANUAL">Manual</option>
+                                    <option value="AZURE_AD">Azure AD</option>
+                                    <option value="QPEOPLE">QPeople</option>
+                                </select>
+                                <select className="h-9 rounded-md border border-input bg-background px-2 text-sm shadow-sm cursor-pointer" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} aria-label="Filter by status">
+                                    <option value="all">All Status</option>
+                                    <option value="active">Active</option>
+                                    <option value="inactive">Inactive</option>
+                                </select>
+                                {(roleFilter !== 'all' || sourceFilter !== 'all' || statusFilter !== 'all' || departmentFilter !== 'all') && (
+                                    <Button variant="ghost" size="sm" onClick={() => { setRoleFilter('all'); setSourceFilter('all'); setStatusFilter('all'); setDepartmentFilter('all'); }}>Clear filters</Button>
+                                )}
                                 <div className="ml-auto flex gap-2">
                                     <Button variant="outline" onClick={handleSyncAzure} disabled={syncing}>
                                         {syncing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Cloud className="h-4 w-4 mr-2" />}
                                         Sync Azure AD
                                     </Button>
+                                    <Button variant="outline" onClick={handleSyncQPeople} disabled={syncingQPeople}>
+                                        {syncingQPeople ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Cloud className="h-4 w-4 mr-2" />}
+                                        Sync QPeople
+                                    </Button>
                                     <Button onClick={handleOpenAddModal}><Plus className="h-4 w-4 mr-2" />Add User</Button>
                                 </div>
                             </div>
+                            {selectedIds.size > 0 && (
+                                <div className="px-4 py-2 border-b bg-primary/5 flex items-center gap-3 text-sm">
+                                    <span className="font-medium">{selectedIds.size} selected</span>
+                                    <Button size="sm" variant="outline" disabled={bulkWorking} onClick={() => handleBulkAction('activate')}>Activate</Button>
+                                    <Button size="sm" variant="outline" disabled={bulkWorking} onClick={() => handleBulkAction('deactivate')}>Deactivate</Button>
+                                    <Button size="sm" variant="outline" className="text-destructive border-destructive/40 hover:bg-destructive/10" disabled={bulkWorking} onClick={() => handleBulkAction('delete')}>Delete</Button>
+                                    {bulkWorking && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+                                    <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setSelectedIds(new Set())}>Clear</Button>
+                                </div>
+                            )}
                             <Table>
-                                <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Role</TableHead><TableHead>Details</TableHead><TableHead>Status</TableHead><TableHead className="w-[50px]"></TableHead></TableRow></TableHeader>
+                                <TableHeader><TableRow><TableHead className="w-[36px]"><input type="checkbox" className="h-4 w-4 accent-primary cursor-pointer" aria-label="Select all on page" checked={paginatedUsers.length > 0 && paginatedUsers.every(u => selectedIds.has(u.id))} onChange={() => toggleSelectPage(paginatedUsers)} /></TableHead><SortableHead column="name">User</SortableHead><SortableHead column="role">Role</SortableHead><SortableHead column="department">Department</SortableHead><SortableHead column="designation">Designation</SortableHead><SortableHead column="source">Source</SortableHead><SortableHead column="lastLogin">Last Login</SortableHead><TableHead>Details</TableHead><TableHead>Status</TableHead><TableHead className="w-[50px]"></TableHead></TableRow></TableHeader>
                                 <TableBody>
                                     {paginatedUsers.map(user => (
-                                        <TableRow key={user.id}>
-                                            <TableCell><div className="flex items-center gap-3"><Avatar className="h-8 w-8"><AvatarFallback className="text-xs bg-primary/10 text-primary">{user.firstName?.[0]}{user.lastName?.[0]}</AvatarFallback></Avatar><span className="font-medium">{user.firstName} {user.lastName}</span></div></TableCell>
-                                            <TableCell className="text-sm text-muted-foreground">{user.email}</TableCell>
+                                        <TableRow key={user.id} data-state={selectedIds.has(user.id) ? 'selected' : undefined}>
+                                            <TableCell><input type="checkbox" className="h-4 w-4 accent-primary cursor-pointer" aria-label={`Select ${user.firstName} ${user.lastName}`} checked={selectedIds.has(user.id)} onChange={() => toggleSelect(user.id)} /></TableCell>
+                                            <TableCell><div className="flex items-center gap-3"><Avatar className="h-8 w-8"><AvatarFallback className="text-xs bg-primary/10 text-primary">{user.firstName?.[0]}{user.lastName?.[0]}</AvatarFallback></Avatar><div className="min-w-0"><div className="font-medium">{user.firstName} {user.lastName}</div><div className="text-xs text-muted-foreground truncate">{user.email}</div></div></div></TableCell>
                                             <TableCell>
                                                 {currentUserRole === 'Admin' ? (
                                                     <div className="relative inline-flex items-center gap-1.5">
@@ -256,9 +499,14 @@ const UserManagement: React.FC = () => {
                                                                     {user.role?.name || 'Unknown'}
                                                                 </option>
                                                             )}
-                                                            {roles.map(role => (
-                                                                <option key={role.id} value={role.id}>{role.name}</option>
-                                                            ))}
+                                                            {/* Inactive roles cannot be newly assigned; the user's current role stays listed even if inactive. */}
+                                                            {roles
+                                                                .filter(role => role.isActive !== false || role.id === user.role?.id)
+                                                                .map(role => (
+                                                                    <option key={role.id} value={role.id}>
+                                                                        {role.isActive === false ? `${role.name} (Inactive)` : role.name}
+                                                                    </option>
+                                                                ))}
                                                         </select>
                                                     </div>
                                                 ) : (
@@ -267,11 +515,26 @@ const UserManagement: React.FC = () => {
                                                     </Badge>
                                                 )}
                                             </TableCell>
+                                            <TableCell className="text-sm text-muted-foreground">{user.department?.name || '—'}</TableCell>
+                                            <TableCell className="text-sm text-muted-foreground">{user.designation || '—'}</TableCell>
+                                            <TableCell>
+                                                <Badge variant={getSourceBadgeVariant(user.source)}>
+                                                    {getSourceLabel(user.source)}
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                                                {user.lastLogin ? new Date(user.lastLogin).toLocaleDateString() : 'Never'}
+                                            </TableCell>
                                             <TableCell><Button variant="ghost" size="sm" className="text-primary hover:text-primary hover:bg-primary/5 gap-1.5" onClick={() => handleViewProfile(user)}><Eye className="h-4 w-4" />View Profile</Button></TableCell>
                                             <TableCell>
-                                                <Badge variant={user.isActive ? "success" : "destructive"}>
-                                                    {user.isActive ? "Active" : "Inactive"}
-                                                </Badge>
+                                                <StatusToggle
+                                                    checked={user.isActive}
+                                                    onToggle={currentUserRole === 'Admin' ? () => handleToggleActive(user) : undefined}
+                                                    loading={togglingActiveFor === user.id}
+                                                    disabled={user.id === currentUserId}
+                                                    disabledReason="You cannot deactivate your own account"
+                                                    ariaLabel={`Toggle status for ${user.firstName} ${user.lastName}`}
+                                                />
                                             </TableCell>
                                             <TableCell>
                                                 <ActionDropdown actions={[
@@ -282,7 +545,7 @@ const UserManagement: React.FC = () => {
                                             </TableCell>
                                         </TableRow>
                                     ))}
-                                    {paginatedUsers.length === 0 && <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No users found</TableCell></TableRow>}
+                                    {paginatedUsers.length === 0 && <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">No users found</TableCell></TableRow>}
                                 </TableBody>
                             </Table>
                             <Pagination
@@ -291,6 +554,7 @@ const UserManagement: React.FC = () => {
                                 onPageChange={setCurrentPage}
                                 totalItems={filteredUsers.length}
                                 pageSize={itemsPerPage}
+                                onPageSizeChange={(size) => { setItemsPerPage(size); setCurrentPage(1); }}
                             />
                         </>
                     )}
@@ -400,9 +664,48 @@ const UserManagement: React.FC = () => {
                                 onBlur={() => handleBlur('roleId')}
                             >
                                 <option value="">Select a role...</option>
-                                {roles.map(role => <option key={role.id} value={role.id}>{role.name}</option>)}
+                                {/* Inactive roles are not offered; a currently-assigned inactive role stays visible. */}
+                                {roles
+                                    .filter(role => role.isActive !== false || role.id.toString() === formData.roleId)
+                                    .map(role => (
+                                        <option key={role.id} value={role.id}>
+                                            {role.isActive === false ? `${role.name} (Inactive)` : role.name}
+                                        </option>
+                                    ))}
                             </select>
                         </FormField>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <FormField
+                                id="departmentId"
+                                label="Department"
+                                error={errors.departmentId}
+                                hint="Organizational department"
+                            >
+                                <select
+                                    id="departmentId"
+                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    value={formData.departmentId}
+                                    onChange={e => handleChange('departmentId', e.target.value)}
+                                >
+                                    <option value="">No department</option>
+                                    {departments.map(dep => <option key={dep.id} value={dep.id}>{dep.name}</option>)}
+                                </select>
+                            </FormField>
+
+                            <FormField
+                                id="designation"
+                                label="Designation"
+                                error={errors.designation}
+                                hint="Job title"
+                            >
+                                <Input
+                                    value={formData.designation}
+                                    onChange={e => handleChange('designation', e.target.value)}
+                                    placeholder="Software Engineer"
+                                />
+                            </FormField>
+                        </div>
 
                         <DialogFooter className="pt-4">
                             <Button type="button" variant="outline" onClick={() => setShowUserModal(false)}>Cancel</Button>
@@ -414,6 +717,15 @@ const UserManagement: React.FC = () => {
                     </form>
                 </DialogContent>
             </Dialog>
+
+            <ConfirmModal
+                show={confirmState.show}
+                title={confirmState.title}
+                message={confirmState.message}
+                type={confirmState.type}
+                onConfirm={confirmState.onConfirm}
+                onCancel={() => setConfirmState(prev => ({ ...prev, show: false }))}
+            />
         </div>
     );
 };

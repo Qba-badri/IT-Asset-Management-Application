@@ -9,19 +9,23 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { Permissions } from '../auth/decorators/permissions.decorator';
 import { DepartmentsService } from './departments.service';
-import { Department } from '../../entities/department.entity';
+import { CreateDepartmentDto, UpdateDepartmentDto } from './dto/department.dto';
 
 @Controller('api/departments')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class DepartmentsController {
   constructor(private readonly deptService: DepartmentsService) {}
 
   @Post()
-  create(@Body() data: Partial<Department>) {
+  @Permissions('departments.manage')
+  create(@Body() data: CreateDepartmentDto) {
     return this.deptService.create(data);
   }
 
+  // Reads stay JWT-only: department lists feed dropdowns across the app
   @Get()
   findAll() {
     return this.deptService.findAll();
@@ -33,9 +37,10 @@ export class DepartmentsController {
   }
 
   @Put(':id')
+  @Permissions('departments.manage')
   update(
     @Param('id', ParseIntPipe) id: number,
-    @Body() data: Partial<Department>,
+    @Body() data: UpdateDepartmentDto,
   ) {
     return this.deptService.update(id, data);
   }

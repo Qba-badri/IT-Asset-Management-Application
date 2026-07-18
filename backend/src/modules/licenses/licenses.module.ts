@@ -8,11 +8,13 @@ import { LicenseRenewal } from '../../entities/license-renewal.entity';
 import { LicenseHistory } from '../../entities/license-history.entity';
 import { User } from '../../entities/user.entity';
 import { AuthModule } from '../auth/auth.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([License, LicenseAssignment, LicenseRenewal, LicenseHistory, User]),
     AuthModule,
+    NotificationsModule,
   ],
   controllers: [LicensesController],
   providers: [LicensesService],

@@ -10,6 +10,7 @@ import { InventoryReturn } from '../../entities/inventory-return.entity';
 import { InventoryTransaction } from '../../entities/inventory-transaction.entity';
 import { AuditEvent } from '../../entities/audit-event.entity';
 import { AuthModule } from '../auth/auth.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
     imports: [
@@ -23,6 +24,7 @@ import { AuthModule } from '../auth/auth.module';
             AuditEvent,
         ]),
         AuthModule,
+        NotificationsModule,
     ],
     controllers: [InventoryManagementController],
     providers: [InventoryManagementService],

@@ -466,9 +466,11 @@ const EMPTY_DATA: DashboardData = {
 
 const DashboardHome: React.FC = () => {
   const { showToast } = useToast();
-  const { currencySymbol } = useCurrency();
+  const { currencySymbol, currencyCode } = useCurrency();
+  // Dashboard aggregates arrive already converted by the backend (displayCurrency
+  // param below), so this only rounds and applies the symbol + locale grouping.
   const currency = (v: number): string =>
-    `${currencySymbol}${Math.round(v).toLocaleString()}`;
+    `${currencySymbol}${Math.round(v).toLocaleString(currencyCode === 'INR' ? 'en-IN' : 'en-US')}`;
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -480,7 +482,8 @@ const DashboardHome: React.FC = () => {
   const loadDashboard = useCallback(async () => {
     setRefreshing(true);
     try {
-      const f = {};
+      // Monetary aggregates are converted server-side into the user's display currency
+      const f = { displayCurrency: currencyCode };
       const [
         globalRes, assetsRes, serializedRes, invKpiRes,
         assignRes, licenseRes, userRes, financialRes,
@@ -532,7 +535,7 @@ const DashboardHome: React.FC = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [showToast]);
+  }, [showToast, currencyCode]);
 
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
 

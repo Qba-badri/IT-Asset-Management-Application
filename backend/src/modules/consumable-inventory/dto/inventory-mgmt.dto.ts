@@ -1,18 +1,29 @@
-import { IsString, IsNumber, IsBoolean, IsOptional, IsEnum, IsDateString, IsNotEmpty, IsIn, Min, ValidateIf } from 'class-validator';
+import { IsString, IsNumber, IsBoolean, IsOptional, IsEnum, IsDateString, IsNotEmpty, IsIn, Min } from 'class-validator';
+import { Observe } from '../../../common/validation/observe.decorator';
 import { InventoryTransactionType } from '../../../entities/inventory-transaction.entity';
 import { InventoryAssignmentTargetType } from '../../../entities/inventory-assignment.entity';
+import { RequiredWhen } from '../../../common/validation/required-when.decorator';
 
 export class CreateInventoryCategoryDto {
     @IsString()
+    @Observe('Backfill 2026-07: already mandatory, but accepted an empty string')
+    @IsNotEmpty()
     name: string;
 
     @IsOptional()
     @IsString()
     description?: string;
+
+    /** Soft-deactivation: inactive categories are excluded from new selections. */
+    @IsOptional()
+    @IsBoolean()
+    isActive?: boolean;
 }
 
 export class CreateInventoryItemDto {
     @IsString()
+    @Observe('Backfill 2026-07: already mandatory, but accepted an empty string')
+    @IsNotEmpty()
     name: string;
 
     @IsNumber()
@@ -47,6 +58,8 @@ export class CreateInventoryPurchaseDto {
     itemId: number;
 
     @IsString()
+    @Observe('Backfill 2026-07: already mandatory, but accepted an empty string')
+    @IsNotEmpty()
     vendorName: string;
 
     @IsOptional()
@@ -94,11 +107,18 @@ export class CreateInventoryAssignmentDto {
     @IsEnum(InventoryAssignmentTargetType)
     targetType?: InventoryAssignmentTargetType;
 
-    @ValidateIf((dto) => (dto.targetType || InventoryAssignmentTargetType.PERSON) === InventoryAssignmentTargetType.PERSON)
+    @RequiredWhen({
+        field: 'targetType',
+        equals: [InventoryAssignmentTargetType.PERSON],
+        defaultsTo: InventoryAssignmentTargetType.PERSON,
+    })
     @IsNumber()
     userId?: number;
 
-    @ValidateIf((dto) => dto.targetType === InventoryAssignmentTargetType.LOCATION)
+    @RequiredWhen({
+        field: 'targetType',
+        equals: [InventoryAssignmentTargetType.LOCATION],
+    })
     @IsString()
     location?: string;
 

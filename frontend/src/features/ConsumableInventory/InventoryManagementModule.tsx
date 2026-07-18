@@ -10,10 +10,10 @@ import { userService, User } from '../../services/userService';
 import { masterService, Vendor, Lookup } from '../../services/masterService';
 import { useToast } from '../../context/ToastContext';
 import { useCurrency } from '../../context/CurrencyContext';
+import { useAuth } from '../../hooks/useAuth';
 import ConfirmModal from '../../components/Common/ConfirmModal';
 import ActionDropdown from '../../components/Common/ActionDropdown';
 import { PageHeader } from '../../components/shared/PageHeader';
-import { StatCard } from '../../components/shared/StatCard';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
@@ -24,10 +24,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { useNavigate, Link } from 'react-router-dom';
 import { Pagination } from '../../components/shared/Pagination';
+import UserSelect from '../../components/shared/UserSelect';
+import { FormField } from '../../components/shared/FormField';
+import { useForm } from '../../hooks/useForm';
 
 const InventoryManagement: React.FC = () => {
     const navigate = useNavigate();
-    const { formatCost } = useCurrency();
+    const { formatCost, availableCurrencies, defaultCurrency, convertBetween, formatInCurrency } = useCurrency();
     const [items, setItems] = useState<InventoryItem[]>([]);
     const [categories, setCategories] = useState<InventoryCategory[]>([]);
     const [purchases, setPurchases] = useState<InventoryPurchase[]>([]);
@@ -37,6 +40,10 @@ const InventoryManagement: React.FC = () => {
     const [lookups, setLookups] = useState<Record<string, Lookup[]>>({});
     const [currentUser, setCurrentUser] = useState<any>(null);
     const [stats, setStats] = useState<any>(null);
+    const { hasPermission } = useAuth();
+    // Mirrors the backend PermissionsGuard: all mutating inventory routes require inventory-mgmt.manage
+    const canManage = hasPermission('inventory-mgmt.manage');
+    const canManageCategories = hasPermission('categories.manage');
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
@@ -67,30 +74,53 @@ const InventoryManagement: React.FC = () => {
     const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
     const [confirmState, setConfirmState] = useState<{ show: boolean; title: string; message: string; onConfirm: () => void; type?: 'danger' | 'warning' | 'primary' }>({ show: false, title: '', message: '', onConfirm: () => { } });
 
-    // Form States
-    const [newItem, setNewItem] = useState({
+    // Form States. Several ids/quantities use 0 as their "empty" sentinel, so
+    // their required checks live in `custom` rules, which run on empty values.
+    const itemForm = useForm({
         name: '',
         categoryId: 0,
         isRefundable: false,
         minStockLevel: 10,
         unitsPerPack: 1,
         packQuantity: 0
+    }, {
+        name: { label: 'Item name', required: true },
+        categoryId: { label: 'Category', custom: (v) => (!v ? 'Category is required.' : null) },
     });
+    const newItem = itemForm.values;
+    const setNewItem = itemForm.setValues;
 
-    const [newPurchase, setNewPurchase] = useState({
+    const purchaseForm = useForm({
         itemId: 0,
         vendorName: '',
         quantity: 0,
         packQuantity: 0,
         unitsPerPack: 1,
         unitCost: 0,
-        currency: 'USD',
+        currency: defaultCurrency,
         invoiceNumber: '',
         invoiceAttachment: '',
         purchaseDate: new Date().toISOString().split('T')[0]
+    }, {
+        itemId: { label: 'Item', custom: (v) => (!v ? 'Item is required.' : null) },
+        vendorName: { label: 'Vendor name', required: true },
+        packQuantity: {
+            label: 'Pack quantity',
+            custom: (v, all) => ((all.unitsPerPack || 1) > 1 && (!v || v <= 0) ? 'Pack quantity must be at least 1.' : null),
+        },
+        quantity: {
+            label: 'Quantity',
+            custom: (v, all) => ((all.unitsPerPack || 1) <= 1 && (!v || v <= 0) ? 'Quantity must be greater than zero.' : null),
+        },
+        unitCost: {
+            label: 'Unit cost',
+            custom: (v) => (v < 0 ? 'Unit cost cannot be negative.' : null),
+        },
     });
+    const newPurchase = purchaseForm.values;
+    const setNewPurchase = purchaseForm.setValues;
 
-    const [newAssignment, setNewAssignment] = useState({
+    const assignmentForm = useForm({
         itemId: 0,
         targetType: 'PERSON' as 'PERSON' | 'LOCATION',
         userId: 0,
@@ -98,27 +128,54 @@ const InventoryManagement: React.FC = () => {
         quantity: 0,
         department: '',
         expectedReturnDate: ''
+    }, {
+        itemId: { label: 'Item', custom: (v) => (!v ? 'Item is required.' : null) },
+        userId: {
+            label: 'User',
+            custom: (v, all) => (all.targetType === 'PERSON' && !v ? 'User is required.' : null),
+        },
+        location: {
+            label: 'Location',
+            custom: (v, all) => (all.targetType === 'LOCATION' && !String(v ?? '').trim() ? 'Location is required.' : null),
+        },
+        quantity: { label: 'Quantity', custom: (v) => (!v || v <= 0 ? 'Quantity must be greater than zero.' : null) },
     });
+    const newAssignment = assignmentForm.values;
+    const setNewAssignment = assignmentForm.setValues;
 
-    const [newReturn, setNewReturn] = useState({
+    const returnForm = useForm({
         assignmentId: 0,
         condition: '',
         remarks: ''
+    }, {
+        condition: { label: 'Condition', required: true },
     });
+    const newReturn = returnForm.values;
+    const setNewReturn = returnForm.setValues;
 
-    const [stockAdjustment, setStockAdjustment] = useState({
+    const adjustStockForm = useForm({
         itemId: 0,
         type: 'IN' as 'IN' | 'OUT',
         quantity: 0,
         notes: ''
+    }, {
+        quantity: { label: 'Quantity', custom: (v) => (!v || v <= 0 ? 'Quantity must be greater than zero.' : null) },
+        notes: { label: 'Reason', custom: (v) => (!String(v ?? '').trim() ? 'Reason is required.' : null) },
     });
+    const stockAdjustment = adjustStockForm.values;
+    const setStockAdjustment = adjustStockForm.setValues;
 
-    const [deleteAssignmentData, setDeleteAssignmentData] = useState({ assignmentId: 0, reason: '' });
+    const deleteAssignmentForm = useForm({ assignmentId: 0, reason: '' }, {
+        reason: { label: 'Reason', custom: (v) => (!String(v ?? '').trim() ? 'Reason is required.' : null) },
+    });
+    const deleteAssignmentData = deleteAssignmentForm.values;
 
     const loadData = async () => {
         try {
             setLoading(true);
-            const [itemsData, categoriesData, dashboardData, usersData, vendorsData, lData, purchasesData, assignmentsData] = await Promise.all([
+            // allSettled, not all: these endpoints have different permission gates
+            // (e.g. vendors needs vendors.view). One 403 must not blank the whole page.
+            const settled = await Promise.allSettled([
                 inventoryService.getItems(),
                 inventoryService.getCategories(),
                 inventoryService.getDashboardStats(),
@@ -128,6 +185,24 @@ const InventoryManagement: React.FC = () => {
                 inventoryService.getPurchases(),
                 inventoryService.getAssignments()
             ]);
+            const valueOr = <T,>(r: PromiseSettledResult<T>, fallback: T): T =>
+                r.status === 'fulfilled' ? r.value : fallback;
+            const [itemsRes, categoriesRes, dashboardRes, usersRes, vendorsRes, lookupsRes, purchasesRes, assignmentsRes] = settled;
+
+            // Surface anything that genuinely failed, without discarding what loaded.
+            const failed = settled.find(r => r.status === 'rejected') as PromiseRejectedResult | undefined;
+            if (failed && itemsRes.status === 'rejected') {
+                throw failed.reason;
+            }
+
+            const itemsData = valueOr(itemsRes, [] as InventoryItem[]);
+            const categoriesData = valueOr(categoriesRes, [] as InventoryCategory[]);
+            const dashboardData = valueOr(dashboardRes, null);
+            const usersData = valueOr(usersRes, [] as User[]);
+            const vendorsData = valueOr(vendorsRes, [] as Vendor[]);
+            const lData = valueOr(lookupsRes, [] as Lookup[]);
+            const purchasesData = valueOr(purchasesRes, [] as InventoryPurchase[]);
+            const assignmentsData = valueOr(assignmentsRes, [] as InventoryAssignment[]);
             setItems(itemsData || []);
             setCategories(categoriesData || []);
             setStats(dashboardData);
@@ -184,7 +259,7 @@ const InventoryManagement: React.FC = () => {
         authService.getProfile().then(setCurrentUser).catch(() => { });
     }, []);
 
-    const itemsPerPage = 10;
+    const [itemsPerPage, setItemsPerPage] = useState(10);
     const [itemsPage, setItemsPage] = useState(1);
     const [purchasesPage, setPurchasesPage] = useState(1);
     const [assignmentsPage, setAssignmentsPage] = useState(1);
@@ -200,10 +275,7 @@ const InventoryManagement: React.FC = () => {
     }, [activeTab]);
 
     const handleCreateItem = async () => {
-        if (!newItem.name || !newItem.categoryId) {
-            showToast("Please fill in all required fields", "error");
-            return;
-        }
+        if (!itemForm.validateForm()) return;
 
         try {
             setSubmitting(true);
@@ -215,7 +287,7 @@ const InventoryManagement: React.FC = () => {
                 showToast('Item created successfully', 'success');
             }
             setShowItemFormModal(false);
-            setNewItem({
+            itemForm.resetForm({
                 name: '',
                 categoryId: 0,
                 isRefundable: false,
@@ -234,32 +306,11 @@ const InventoryManagement: React.FC = () => {
     };
 
     const handleCreatePurchase = async () => {
-        if (!newPurchase.itemId) {
-            showToast("Please select an item", "error");
-            return;
-        }
-        if (!newPurchase.vendorName) {
-            showToast("Please enter a vendor name", "error");
-            return;
-        }
+        if (!purchaseForm.validateForm()) return;
         const purchaseUnitsPerPack = newPurchase.unitsPerPack || 1;
         const totalUnits = purchaseUnitsPerPack > 1
             ? newPurchase.packQuantity * purchaseUnitsPerPack
             : newPurchase.quantity;
-        if (purchaseUnitsPerPack > 1) {
-            if (!newPurchase.packQuantity || newPurchase.packQuantity <= 0) {
-                showToast("Please enter a valid pack quantity", "error");
-                return;
-            }
-        } else if (!newPurchase.quantity || newPurchase.quantity <= 0) {
-            showToast("Please enter a valid quantity", "error");
-            return;
-        }
-        // Unit cost can be 0 but usually not negative
-        if (newPurchase.unitCost < 0) {
-            showToast("Please enter a valid unit cost", "error");
-            return;
-        }
 
         try {
             setSubmitting(true);
@@ -271,14 +322,14 @@ const InventoryManagement: React.FC = () => {
             });
             showToast('Purchase recorded successfully', 'success');
             setShowPurchaseFormModal(false);
-            setNewPurchase({
+            purchaseForm.resetForm({
                 itemId: 0,
                 vendorName: '',
                 quantity: 0,
                 packQuantity: 0,
                 unitsPerPack: 1,
                 unitCost: 0,
-                currency: 'USD',
+                currency: defaultCurrency,
                 invoiceNumber: '',
                 invoiceAttachment: '',
                 purchaseDate: new Date().toISOString().split('T')[0]
@@ -295,18 +346,7 @@ const InventoryManagement: React.FC = () => {
     };
 
     const handleCreateAssignment = async () => {
-        if (!newAssignment.itemId || !newAssignment.quantity) {
-            showToast("Please select an Item and enter Quantity", "error");
-            return;
-        }
-        if (newAssignment.targetType === 'PERSON' && !newAssignment.userId) {
-            showToast("Please select a User", "error");
-            return;
-        }
-        if (newAssignment.targetType === 'LOCATION' && !newAssignment.location.trim()) {
-            showToast("Please enter a Location", "error");
-            return;
-        }
+        if (!assignmentForm.validateForm()) return;
 
         try {
             setSubmitting(true);
@@ -321,7 +361,7 @@ const InventoryManagement: React.FC = () => {
             });
             showToast('Item assigned successfully', 'success');
             setShowAssignmentFormModal(false);
-            setNewAssignment({ itemId: 0, targetType: 'PERSON', userId: 0, location: '', quantity: 0, department: '', expectedReturnDate: '' });
+            assignmentForm.resetForm({ itemId: 0, targetType: 'PERSON', userId: 0, location: '', quantity: 0, department: '', expectedReturnDate: '' });
             loadData();
             if (activeTab === 'assignments') loadAssignments();
         } catch (error: any) {
@@ -346,7 +386,7 @@ const InventoryManagement: React.FC = () => {
     const handleEditItem = (item: InventoryItem) => {
         setEditingItem(item);
         const upp = item.unitsPerPack || 1;
-        setNewItem({
+        itemForm.resetForm({
             name: item.name,
             categoryId: item.categoryId,
             isRefundable: item.isRefundable,
@@ -362,10 +402,7 @@ const InventoryManagement: React.FC = () => {
             showToast("Please select an assignment to return", "error");
             return;
         }
-        if (!newReturn.condition) {
-            showToast("Please select the item's condition to process the return", "error");
-            return;
-        }
+        if (!returnForm.validateForm()) return;
 
         try {
             setSubmitting(true);
@@ -375,7 +412,7 @@ const InventoryManagement: React.FC = () => {
             });
             showToast('Item returned successfully', 'success');
             setShowReturnFormModal(false);
-            setNewReturn({ assignmentId: 0, condition: '', remarks: '' });
+            returnForm.resetForm({ assignmentId: 0, condition: '', remarks: '' });
 
             // Reload data
             loadData();
@@ -395,19 +432,12 @@ const InventoryManagement: React.FC = () => {
     };
 
     const handleAdjustStockClick = (item: InventoryItem) => {
-        setStockAdjustment({ itemId: item.id, type: 'IN', quantity: 0, notes: '' });
+        adjustStockForm.resetForm({ itemId: item.id, type: 'IN', quantity: 0, notes: '' });
         setShowAdjustStockModal(true);
     };
 
     const handleAdjustStock = async () => {
-        if (!stockAdjustment.quantity || stockAdjustment.quantity <= 0) {
-            showToast("Please enter a quantity greater than zero", "error");
-            return;
-        }
-        if (!stockAdjustment.notes.trim()) {
-            showToast("Please provide a reason for this adjustment", "error");
-            return;
-        }
+        if (!adjustStockForm.validateForm()) return;
 
         try {
             setSubmitting(true);
@@ -430,15 +460,12 @@ const InventoryManagement: React.FC = () => {
     };
 
     const handleDeleteAssignmentClick = (assignmentId: number) => {
-        setDeleteAssignmentData({ assignmentId, reason: '' });
+        deleteAssignmentForm.resetForm({ assignmentId, reason: '' });
         setShowDeleteAssignmentModal(true);
     };
 
     const handleDeleteAssignment = async () => {
-        if (!deleteAssignmentData.reason.trim()) {
-            showToast("Please provide a reason for this correction", "error");
-            return;
-        }
+        if (!deleteAssignmentForm.validateForm()) return;
 
         try {
             setSubmitting(true);
@@ -589,17 +616,19 @@ const InventoryManagement: React.FC = () => {
         <div className="space-y-6">
             <PageHeader title="Inventory Management" description="Track stock, record purchases, and manage item assignments.">
                 <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" className="hidden sm:flex gap-2" onClick={() => navigate('/dashboard/admin/inventory-categories')}>
-                        <Settings2 className="h-4 w-4" /> Manage Categories
-                    </Button>
-                    {activeTab === 'items' && (
+                    {canManageCategories && (
+                        <Button variant="outline" size="sm" className="hidden sm:flex gap-2" onClick={() => navigate('/dashboard/admin/inventory-categories')}>
+                            <Settings2 className="h-4 w-4" /> Manage Categories
+                        </Button>
+                    )}
+                    {canManage && activeTab === 'items' && (
                         <Button size="sm" onClick={() => setShowItemFormModal(true)}>
                             <Plus className="h-4 w-4 mr-2" /> New Item
                         </Button>
                     )}
-                    {activeTab === 'purchases' && (
+                    {canManage && activeTab === 'purchases' && (
                         <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => {
-                            setNewPurchase({ itemId: 0, vendorName: '', quantity: 1, packQuantity: 0, unitsPerPack: 1, unitCost: 0, currency: 'USD', invoiceNumber: '', purchaseDate: new Date().toISOString().split('T')[0], invoiceAttachment: '' });
+                            purchaseForm.resetForm({ itemId: 0, vendorName: '', quantity: 1, packQuantity: 0, unitsPerPack: 1, unitCost: 0, currency: defaultCurrency, invoiceNumber: '', purchaseDate: new Date().toISOString().split('T')[0], invoiceAttachment: '' });
                             setShowPurchaseFormModal(true);
                         }}>
                             <ShoppingCart className="h-4 w-4 mr-2" /> Record Purchase
@@ -607,7 +636,7 @@ const InventoryManagement: React.FC = () => {
                     )}
                     {activeTab === 'assignments' && (
                         <Button size="sm" className="bg-primary hover:bg-primary/90" onClick={() => {
-                            setNewAssignment({ itemId: 0, targetType: 'PERSON', userId: 0, location: '', quantity: 1, department: '', expectedReturnDate: '' });
+                            assignmentForm.resetForm({ itemId: 0, targetType: 'PERSON', userId: 0, location: '', quantity: 1, department: '', expectedReturnDate: '' });
                             setShowAssignmentFormModal(true);
                         }}>
                             <UserPlus className="h-4 w-4 mr-2" /> Issue Item
@@ -616,13 +645,6 @@ const InventoryManagement: React.FC = () => {
                 </div>
             </PageHeader>
 
-            {/* Stats Cards */}
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
-                <StatCard title="Total Items" value={stats?.totalItems || 0} subtitle="Unique Products" icon={Package} iconColor="bg-blue-100 text-blue-600" />
-                <StatCard title="Total Stock" value={stats?.totalStock || 0} subtitle="All Units" icon={ShoppingCart} iconColor="bg-green-100 text-green-600" />
-                <StatCard title="Low Stock Items" value={items.filter(i => i.availableStock <= i.minStockLevel && i.availableStock > 0).length} subtitle="Need Reorder" icon={AlertTriangle} iconColor="bg-amber-100 text-amber-600" />
-                <StatCard title="Out of Stock" value={items.filter(i => i.availableStock === 0).length} subtitle="Action Required" icon={AlertTriangle} iconColor="bg-destructive/10 text-destructive" />
-            </div>
 
             {/* Dashboard Navigation Tabs */}
             <Card className="shadow-sm border-muted/20">
@@ -782,13 +804,15 @@ const InventoryManagement: React.FC = () => {
                                                             <Button variant="ghost" size="icon-sm" onClick={() => handleViewDetails(item.id)} title="View Details">
                                                                 <Eye className="h-4 w-4" />
                                                             </Button>
-                                                            <ActionDropdown actions={[
-                                                                { label: 'Edit Item', icon: <Edit className="h-4 w-4" />, onClick: () => handleEditItem(item) },
-                                                                { label: 'Record Purchase', icon: <ShoppingCart className="h-4 w-4" />, onClick: () => { setNewPurchase({ ...newPurchase, itemId: item.id, unitsPerPack: item.unitsPerPack || 1 }); setShowPurchaseFormModal(true); } },
-                                                                { label: 'Assign Item', icon: <UserPlus className="h-4 w-4" />, onClick: () => { setNewAssignment({ ...newAssignment, itemId: item.id }); setShowAssignmentFormModal(true); } },
-                                                                { label: 'Adjust Stock', icon: <Sliders className="h-4 w-4" />, onClick: () => handleAdjustStockClick(item) },
-                                                                { label: 'Delete Item', icon: <Trash2 className="h-4 w-4" />, onClick: () => handleDeleteClick(item), variant: 'danger' },
-                                                            ]} />
+                                                            {canManage && (
+                                                                <ActionDropdown actions={[
+                                                                    { label: 'Edit Item', icon: <Edit className="h-4 w-4" />, onClick: () => handleEditItem(item) },
+                                                                    { label: 'Record Purchase', icon: <ShoppingCart className="h-4 w-4" />, onClick: () => { purchaseForm.resetForm({ ...newPurchase, itemId: item.id, unitsPerPack: item.unitsPerPack || 1 }); setShowPurchaseFormModal(true); } },
+                                                                    { label: 'Assign Item', icon: <UserPlus className="h-4 w-4" />, onClick: () => { assignmentForm.resetForm({ ...newAssignment, itemId: item.id }); setShowAssignmentFormModal(true); } },
+                                                                    { label: 'Adjust Stock', icon: <Sliders className="h-4 w-4" />, onClick: () => handleAdjustStockClick(item) },
+                                                                    { label: 'Delete Item', icon: <Trash2 className="h-4 w-4" />, onClick: () => handleDeleteClick(item), variant: 'danger' },
+                                                                ]} />
+                                                            )}
                                                         </div>
                                                     </TableCell>
                                                 </TableRow>
@@ -803,6 +827,7 @@ const InventoryManagement: React.FC = () => {
                                         onPageChange={setItemsPage}
                                         totalItems={filteredItems.length}
                                         pageSize={itemsPerPage}
+                                        onPageSizeChange={(size) => { setItemsPerPage(size); setItemsPage(1); setPurchasesPage(1); setAssignmentsPage(1); }}
                                     />
                                 </div>
                             </TabsContent>
@@ -871,6 +896,7 @@ const InventoryManagement: React.FC = () => {
                                     onPageChange={setPurchasesPage}
                                     totalItems={filteredPurchases.length}
                                     pageSize={itemsPerPage}
+                                    onPageSizeChange={(size) => { setItemsPerPage(size); setItemsPage(1); setPurchasesPage(1); setAssignmentsPage(1); }}
                                 />
                             </div>
                         </TabsContent>
@@ -948,7 +974,7 @@ const InventoryManagement: React.FC = () => {
                                                                 variant="ghost"
                                                                 className="h-8 w-8 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
                                                                 onClick={() => {
-                                                                    setNewReturn({ assignmentId: a.id, condition: '', remarks: '' });
+                                                                    returnForm.resetForm({ assignmentId: a.id, condition: '', remarks: '' });
                                                                     setShowReturnFormModal(true);
                                                                 }}
                                                             >
@@ -969,6 +995,7 @@ const InventoryManagement: React.FC = () => {
                                     onPageChange={setAssignmentsPage}
                                     totalItems={filteredAssignments.length}
                                     pageSize={itemsPerPage}
+                                    onPageSizeChange={(size) => { setItemsPerPage(size); setItemsPage(1); setPurchasesPage(1); setAssignmentsPage(1); }}
                                 />
                             </div>
                         </TabsContent>
@@ -981,36 +1008,37 @@ const InventoryManagement: React.FC = () => {
                 <DialogContent>
                     <DialogHeader><DialogTitle>{editingItem ? 'Edit Inventory Item' : 'New Inventory Item'}</DialogTitle></DialogHeader>
                     <div className="space-y-4">
-                        <div className="space-y-2">
-                            <Label>Item Name *</Label>
-                            <Input value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })} placeholder="e.g., AA Batteries" />
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Category *</Label>
+                        <FormField id="name" label="Item Name" required error={itemForm.errors.name}>
+                            <Input value={newItem.name} onChange={e => itemForm.handleChange('name', e.target.value)} onBlur={() => itemForm.handleBlur('name')} placeholder="e.g., AA Batteries" />
+                        </FormField>
+                        <FormField id="categoryId" label="Category" required error={itemForm.errors.categoryId}>
                             <select
                                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                                 value={newItem.categoryId}
-                                onChange={e => setNewItem({ ...newItem, categoryId: parseInt(e.target.value) })}
+                                onChange={e => itemForm.handleChange('categoryId', parseInt(e.target.value))}
+                                onBlur={() => itemForm.handleBlur('categoryId')}
                             >
                                 <option value={0}>-- Select Category --</option>
-                                {categories.map(cat => (
-                                    <option key={cat.id} value={cat.id}>{cat.name}</option>
-                                ))}
+                                {/* Inactive categories cannot be newly assigned; the item's current one stays listed. */}
+                                {categories
+                                    .filter(cat => cat.isActive !== false || cat.id === newItem.categoryId)
+                                    .map(cat => (
+                                        <option key={cat.id} value={cat.id}>
+                                            {cat.isActive === false ? `${cat.name} (Inactive)` : cat.name}
+                                        </option>
+                                    ))}
                             </select>
-                        </div>
+                        </FormField>
                         <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label>Minimum Stock Level</Label>
+                            <FormField id="minStockLevel" label="Minimum Stock Level">
                                 <Input type="number" value={newItem.minStockLevel} onChange={e => setNewItem({ ...newItem, minStockLevel: parseInt(e.target.value) })} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Units per Pack</Label>
+                            </FormField>
+                            <FormField id="itemUnitsPerPack" label="Units per Pack">
                                 <Input type="number" min={1} value={newItem.unitsPerPack} onChange={e => setNewItem({ ...newItem, unitsPerPack: parseInt(e.target.value) || 1 })} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Number of Packs</Label>
+                            </FormField>
+                            <FormField id="itemPackQuantity" label="Number of Packs">
                                 <Input type="number" min={0} value={newItem.packQuantity} onChange={e => setNewItem({ ...newItem, packQuantity: parseInt(e.target.value) || 0 })} />
-                            </div>
+                            </FormField>
                             <div className="col-span-2 text-sm text-muted-foreground">
                                 {newItem.packQuantity || 0} packs × {newItem.unitsPerPack || 1} = <span className="font-medium text-foreground">{(newItem.packQuantity || 0) * (newItem.unitsPerPack || 1)} units total stock</span>
                             </div>
@@ -1030,7 +1058,7 @@ const InventoryManagement: React.FC = () => {
                         <Button variant="outline" onClick={() => {
                             setShowItemFormModal(false);
                             setEditingItem(null);
-                            setNewItem({
+                            itemForm.resetForm({
                                 name: '',
                                 categoryId: 0,
                                 isRefundable: false,
@@ -1052,78 +1080,75 @@ const InventoryManagement: React.FC = () => {
                 <DialogContent>
                     <DialogHeader><DialogTitle>Record Purchase</DialogTitle></DialogHeader>
                     <div className="space-y-4">
-                        <div className="space-y-2">
-                            <Label>Item *</Label>
+                        <FormField id="purchaseItemId" label="Item" required error={purchaseForm.errors.itemId}>
                             <select
                                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                                 value={newPurchase.itemId}
                                 onChange={e => {
                                     const selectedId = parseInt(e.target.value);
                                     const selected = items.find(i => i.id === selectedId);
-                                    setNewPurchase({ ...newPurchase, itemId: selectedId, unitsPerPack: selected?.unitsPerPack || 1 });
+                                    purchaseForm.handleChange('itemId', selectedId);
+                                    setNewPurchase(prev => ({ ...prev, unitsPerPack: selected?.unitsPerPack || 1 }));
                                 }}
+                                onBlur={() => purchaseForm.handleBlur('itemId')}
                             >
                                 <option value={0}>-- Select Item --</option>
                                 {items.map(item => (
                                     <option key={item.id} value={item.id}>{item.name}</option>
                                 ))}
                             </select>
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Vendor Name *</Label>
+                        </FormField>
+                        <FormField id="vendorName" label="Vendor Name" required error={purchaseForm.errors.vendorName}>
                             <select
                                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                                 value={newPurchase.vendorName}
-                                onChange={e => setNewPurchase({ ...newPurchase, vendorName: e.target.value })}
+                                onChange={e => purchaseForm.handleChange('vendorName', e.target.value)}
+                                onBlur={() => purchaseForm.handleBlur('vendorName')}
                             >
                                 <option value="">-- Select Vendor --</option>
                                 {vendors.map(v => (
                                     <option key={v.id} value={v.name}>{v.name}</option>
                                 ))}
                             </select>
-                        </div>
+                        </FormField>
                         {(newPurchase.unitsPerPack || 1) > 1 ? (
                             <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label>Pack Quantity *</Label>
-                                    <Input type="number" min={1} value={newPurchase.packQuantity} onChange={e => setNewPurchase({ ...newPurchase, packQuantity: parseInt(e.target.value) || 0 })} />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label>Units per Pack</Label>
+                                <FormField id="packQuantity" label="Pack Quantity" required error={purchaseForm.errors.packQuantity}>
+                                    <Input type="number" min={1} value={newPurchase.packQuantity} onChange={e => purchaseForm.handleChange('packQuantity', parseInt(e.target.value) || 0)} onBlur={() => purchaseForm.handleBlur('packQuantity')} />
+                                </FormField>
+                                <FormField id="purchaseUnitsPerPack" label="Units per Pack">
                                     <Input type="number" min={1} value={newPurchase.unitsPerPack} onChange={e => setNewPurchase({ ...newPurchase, unitsPerPack: parseInt(e.target.value) || 1 })} />
-                                </div>
+                                </FormField>
                                 <div className="col-span-2 text-sm text-muted-foreground">
                                     {newPurchase.packQuantity || 0} packs × {newPurchase.unitsPerPack || 1} = <span className="font-medium text-foreground">{(newPurchase.packQuantity || 0) * (newPurchase.unitsPerPack || 1)} units</span>
                                 </div>
                             </div>
                         ) : (
-                            <div className="space-y-2">
-                                <Label>Quantity *</Label>
-                                <Input type="number" value={newPurchase.quantity} onChange={e => setNewPurchase({ ...newPurchase, quantity: parseInt(e.target.value) })} />
-                            </div>
+                            <FormField id="quantity" label="Quantity" required error={purchaseForm.errors.quantity}>
+                                <Input type="number" value={newPurchase.quantity} onChange={e => purchaseForm.handleChange('quantity', parseInt(e.target.value))} onBlur={() => purchaseForm.handleBlur('quantity')} />
+                            </FormField>
                         )}
                         <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label>Unit Cost *</Label>
+                            <FormField id="unitCost" label="Unit Cost" required error={purchaseForm.errors.unitCost}>
                                 <div className="flex gap-2">
                                     <select
                                         className="flex h-10 w-24 rounded-md border border-input bg-background px-3 py-2 text-sm"
                                         value={newPurchase.currency}
                                         onChange={e => setNewPurchase({ ...newPurchase, currency: e.target.value })}
+                                        aria-label="Currency"
                                     >
-                                        {lookups['CURRENCY']?.map(c => (
-                                            <option key={c.id} value={c.value}>{c.value}</option>
-                                        )) || (
-                                                <>
-                                                    <option value="USD">USD</option>
-                                                    <option value="INR">INR</option>
-                                                    <option value="EUR">EUR</option>
-                                                </>
-                                            )}
+                                        {availableCurrencies.map(c => (
+                                            <option key={c.code} value={c.code}>{c.code}</option>
+                                        ))}
                                     </select>
-                                    <Input type="number" step="0.01" value={newPurchase.unitCost} onChange={e => setNewPurchase({ ...newPurchase, unitCost: parseFloat(e.target.value) })} />
+                                    <Input type="number" step="0.01" value={newPurchase.unitCost} onChange={e => purchaseForm.handleChange('unitCost', parseFloat(e.target.value))} onBlur={() => purchaseForm.handleBlur('unitCost')} />
                                 </div>
-                            </div>
+                                {newPurchase.unitCost > 0 && newPurchase.currency !== defaultCurrency && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        ≈ {formatInCurrency(convertBetween(newPurchase.unitCost, newPurchase.currency, defaultCurrency), defaultCurrency)} {defaultCurrency} per unit
+                                    </p>
+                                )}
+                            </FormField>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="space-y-2">
@@ -1183,21 +1208,21 @@ const InventoryManagement: React.FC = () => {
                 <DialogContent>
                     <DialogHeader><DialogTitle>Assign Item</DialogTitle></DialogHeader>
                     <div className="space-y-4">
-                        <div className="space-y-2">
-                            <Label>Item *</Label>
+                        <FormField id="assignmentItemId" label="Item" required error={assignmentForm.errors.itemId}>
                             <select
                                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                                 value={newAssignment.itemId}
-                                onChange={e => setNewAssignment({ ...newAssignment, itemId: parseInt(e.target.value) })}
+                                onChange={e => assignmentForm.handleChange('itemId', parseInt(e.target.value))}
+                                onBlur={() => assignmentForm.handleBlur('itemId')}
                             >
                                 <option value={0}>-- Select Item --</option>
                                 {items.map(item => (
                                     <option key={item.id} value={item.id}>{item.name}</option>
                                 ))}
                             </select>
-                        </div>
+                        </FormField>
                         <div className="space-y-2">
-                            <Label>Assign To *</Label>
+                            <Label>Assign To <span className="text-destructive font-bold">*</span></Label>
                             <div className="flex gap-2">
                                 <Button
                                     type="button"
@@ -1218,41 +1243,32 @@ const InventoryManagement: React.FC = () => {
                             </div>
                         </div>
                         {newAssignment.targetType === 'PERSON' ? (
-                            <div className="space-y-2">
-                                <Label>User *</Label>
-                                <select
-                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                    value={newAssignment.userId}
-                                    onChange={e => setNewAssignment({ ...newAssignment, userId: parseInt(e.target.value) })}
-                                >
-                                    <option value={0}>-- Select User --</option>
-                                    {users.map(u => (
-                                        <option key={u.id} value={u.id}>{u.firstName} {u.lastName} ({u.email})</option>
-                                    ))}
-                                </select>
-                            </div>
+                            <FormField id="assign-inventory-user" label="User" required error={assignmentForm.errors.userId}>
+                                <UserSelect
+                                    users={users}
+                                    value={newAssignment.userId || null}
+                                    onChange={(userId) => assignmentForm.handleChange('userId', userId ?? 0)}
+                                />
+                            </FormField>
                         ) : (
-                            <div className="space-y-2">
-                                <Label>Location *</Label>
+                            <FormField id="assignmentLocation" label="Location" required error={assignmentForm.errors.location}>
                                 <Input
                                     value={newAssignment.location}
-                                    onChange={e => setNewAssignment({ ...newAssignment, location: e.target.value })}
+                                    onChange={e => assignmentForm.handleChange('location', e.target.value)}
+                                    onBlur={() => assignmentForm.handleBlur('location')}
                                     placeholder="e.g. Conference Room 3B, Reception TV"
                                 />
-                            </div>
+                            </FormField>
                         )}
-                        <div className="space-y-2">
-                            <Label>Quantity *</Label>
-                            <Input type="number" value={newAssignment.quantity} onChange={e => setNewAssignment({ ...newAssignment, quantity: parseInt(e.target.value) })} />
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Department</Label>
+                        <FormField id="assignmentQuantity" label="Quantity" required error={assignmentForm.errors.quantity}>
+                            <Input type="number" value={newAssignment.quantity} onChange={e => assignmentForm.handleChange('quantity', parseInt(e.target.value))} onBlur={() => assignmentForm.handleBlur('quantity')} />
+                        </FormField>
+                        <FormField id="assignmentDepartment" label="Department">
                             <Input value={newAssignment.department} onChange={e => setNewAssignment({ ...newAssignment, department: e.target.value })} placeholder="Optional" />
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Expected Return Date</Label>
+                        </FormField>
+                        <FormField id="expectedReturnDate" label="Expected Return Date">
                             <Input type="date" value={newAssignment.expectedReturnDate} onChange={e => setNewAssignment({ ...newAssignment, expectedReturnDate: e.target.value })} />
-                        </div>
+                        </FormField>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setShowAssignmentFormModal(false)}>Cancel</Button>
@@ -1269,12 +1285,12 @@ const InventoryManagement: React.FC = () => {
                 <DialogContent>
                     <DialogHeader><DialogTitle>Return Item</DialogTitle></DialogHeader>
                     <div className="space-y-4">
-                        <div className="space-y-2">
-                            <Label>Condition <span className="text-red-500">*</span></Label>
+                        <FormField id="returnCondition" label="Condition" required error={returnForm.errors.condition}>
                             <select
                                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                                 value={newReturn.condition}
-                                onChange={e => setNewReturn({ ...newReturn, condition: e.target.value })}
+                                onChange={e => returnForm.handleChange('condition', e.target.value)}
+                                onBlur={() => returnForm.handleBlur('condition')}
                             >
                                 <option value="">-- Select Condition --</option>
                                 <option value="good">Good</option>
@@ -1282,16 +1298,15 @@ const InventoryManagement: React.FC = () => {
                                 <option value="damaged">Damaged</option>
                                 <option value="lost">Lost</option>
                             </select>
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Remarks</Label>
+                        </FormField>
+                        <FormField id="returnRemarks" label="Remarks">
                             <textarea
                                 className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                                 value={newReturn.remarks}
                                 onChange={e => setNewReturn({ ...newReturn, remarks: e.target.value })}
                                 placeholder="Optional remarks about the return..."
                             />
-                        </div>
+                        </FormField>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setShowReturnFormModal(false)}>Cancel</Button>
@@ -1319,26 +1334,25 @@ const InventoryManagement: React.FC = () => {
                                 <option value="OUT">Decrease Stock</option>
                             </select>
                         </div>
-                        <div className="space-y-2">
-                            <Label>Quantity</Label>
+                        <FormField id="adjustQuantity" label="Quantity" required error={adjustStockForm.errors.quantity}>
                             <Input
                                 type="number"
                                 min={1}
                                 value={stockAdjustment.quantity || ''}
-                                onChange={e => setStockAdjustment({ ...stockAdjustment, quantity: parseInt(e.target.value) || 0 })}
+                                onChange={e => adjustStockForm.handleChange('quantity', parseInt(e.target.value) || 0)}
+                                onBlur={() => adjustStockForm.handleBlur('quantity')}
                                 placeholder="Enter quantity"
                             />
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Reason <span className="text-destructive">*</span></Label>
+                        </FormField>
+                        <FormField id="adjustNotes" label="Reason" required error={adjustStockForm.errors.notes}>
                             <textarea
                                 className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                                 value={stockAdjustment.notes}
-                                onChange={e => setStockAdjustment({ ...stockAdjustment, notes: e.target.value })}
+                                onChange={e => adjustStockForm.handleChange('notes', e.target.value)}
+                                onBlur={() => adjustStockForm.handleBlur('notes')}
                                 placeholder="e.g. stock-take correction, damaged goods write-off..."
-                                required
                             />
-                        </div>
+                        </FormField>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setShowAdjustStockModal(false)}>Cancel</Button>
@@ -1360,16 +1374,15 @@ const InventoryManagement: React.FC = () => {
                             wrong entry — the assigned quantity will be restored to available stock and this
                             assignment record will be voided.
                         </p>
-                        <div className="space-y-2">
-                            <Label>Reason <span className="text-destructive">*</span></Label>
+                        <FormField id="deleteAssignmentReason" label="Reason" required error={deleteAssignmentForm.errors.reason}>
                             <textarea
                                 className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                                 value={deleteAssignmentData.reason}
-                                onChange={e => setDeleteAssignmentData({ ...deleteAssignmentData, reason: e.target.value })}
+                                onChange={e => deleteAssignmentForm.handleChange('reason', e.target.value)}
+                                onBlur={() => deleteAssignmentForm.handleBlur('reason')}
                                 placeholder="e.g. Assigned to wrong user, wrong quantity entered..."
-                                required
                             />
-                        </div>
+                        </FormField>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setShowDeleteAssignmentModal(false)}>Cancel</Button>
@@ -1515,7 +1528,7 @@ const InventoryManagement: React.FC = () => {
                                                             <TableHead className="text-right">Qty</TableHead>
                                                             <TableHead>Assigned Date</TableHead>
                                                             <TableHead>Status</TableHead>
-                                                            {(selectedItem.isRefundable || currentUser?.role?.name === 'Admin') && <TableHead className="w-[100px] text-right">Action</TableHead>}
+                                                            {canManage && (selectedItem.isRefundable || currentUser?.role?.name === 'Admin') && <TableHead className="w-[100px] text-right">Action</TableHead>}
                                                         </TableRow>
                                                     </TableHeader>
                                                     <TableBody>
@@ -1562,7 +1575,7 @@ const InventoryManagement: React.FC = () => {
                                                                                 assignment.status === 'assigned' ? 'Assigned' : 'Closed'}
                                                                         </Badge>
                                                                     </TableCell>
-                                                                    {(selectedItem.isRefundable || currentUser?.role?.name === 'Admin') && (
+                                                                    {canManage && (selectedItem.isRefundable || currentUser?.role?.name === 'Admin') && (
                                                                         <TableCell className="text-right">
                                                                             {assignment.status === 'assigned' && selectedItem.isRefundable && (
                                                                                 <Button
@@ -1571,7 +1584,7 @@ const InventoryManagement: React.FC = () => {
                                                                                     className="h-8 w-8 p-0"
                                                                                     title="Return Item"
                                                                                     onClick={() => {
-                                                                                        setNewReturn({ assignmentId: assignment.id, condition: '', remarks: '' });
+                                                                                        returnForm.resetForm({ assignmentId: assignment.id, condition: '', remarks: '' });
                                                                                         setShowReturnFormModal(true);
                                                                                     }}
                                                                                 >

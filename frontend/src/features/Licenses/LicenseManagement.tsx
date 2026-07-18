@@ -16,7 +16,6 @@ import { useToast } from '../../context/ToastContext';
 import ConfirmModal from '../../components/Common/ConfirmModal';
 import ActionDropdown, { ActionItem } from '../../components/Common/ActionDropdown';
 import { PageHeader } from '../../components/shared/PageHeader';
-import { StatCard } from '../../components/shared/StatCard';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
@@ -30,6 +29,9 @@ import { useCurrency } from '../../context/CurrencyContext';
 import LicenseForm from './LicenseForm';
 import LicenseDetails from './LicenseDetails';
 import { Pagination } from '../../components/shared/Pagination';
+import UserSelect from '../../components/shared/UserSelect';
+import { FormField } from '../../components/shared/FormField';
+import { useForm } from '../../hooks/useForm';
 
 const LicenseManagement: React.FC = () => {
     const [licenses, setLicenses] = useState<License[]>([]);
@@ -66,15 +68,31 @@ const LicenseManagement: React.FC = () => {
     const [selectedLicense, setSelectedLicense] = useState<License | null>(null);
     const [confirmState, setConfirmState] = useState<{ show: boolean; title: string; message: string; onConfirm: () => void; type?: 'danger' | 'warning' | 'primary' }>({ show: false, title: '', message: '', onConfirm: () => { } });
 
-    // Action Form States
+    // Action Form States. Ids/counts use 0 as their "empty" sentinel, so their
+    // required checks live in `custom` rules, which run on empty values.
     const [renewData, setRenewData] = useState({ newExpiryDate: '', costChange: 0, remarks: '' });
-    const [assignData, setAssignData] = useState({ userId: 0, notes: '' });
-    const [unassignData, setUnassignData] = useState({ assignmentId: 0, reason: '' });
-    const [adjustSeatsData, setAdjustSeatsData] = useState({ seats: 0, usedSeats: 0, reason: '' });
+    const assignForm = useForm({ userId: 0, notes: '' }, {
+        userId: { label: 'User', custom: (v) => (!v ? 'User is required.' : null) },
+    });
+    const assignData = assignForm.values;
+    const setAssignData = assignForm.setValues;
+    const unassignForm = useForm({ assignmentId: 0, reason: '' }, {
+        reason: { label: 'Reason for removal', custom: (v) => (!String(v ?? '').trim() ? 'Reason for removal is required.' : null) },
+    });
+    const unassignData = unassignForm.values;
+    const adjustSeatsForm = useForm({ seats: 0, usedSeats: 0, reason: '' }, {
+        seats: { label: 'Total seat count', custom: (v) => (!v || v <= 0 ? 'Total seat count must be greater than zero.' : null) },
+        usedSeats: {
+            label: 'Used seat count',
+            custom: (v, all) => (v > all.seats ? 'Used seat count cannot exceed the total seat count.' : null),
+        },
+        reason: { label: 'Adjustment reason', custom: (v) => (!String(v ?? '').trim() ? 'Adjustment reason is required.' : null) },
+    });
+    const adjustSeatsData = adjustSeatsForm.values;
 
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 10;
+    const [itemsPerPage, setItemsPerPage] = useState(10);
 
     useEffect(() => {
         const init = async () => {
@@ -186,7 +204,7 @@ const LicenseManagement: React.FC = () => {
 
     const openAdjustSeatsModal = (license: License) => {
         setSelectedLicense(license);
-        setAdjustSeatsData({
+        adjustSeatsForm.resetForm({
             seats: license.totalSeats,
             usedSeats: license.usedSeats,
             reason: ''
@@ -212,14 +230,7 @@ const LicenseManagement: React.FC = () => {
 
     const submitSeatAdjustment = async () => {
         if (!selectedLicense) return;
-        if (!adjustSeatsData.seats || adjustSeatsData.seats <= 0) {
-            showToast('Total seats must be greater than zero', 'error');
-            return;
-        }
-        if (!adjustSeatsData.reason.trim()) {
-            showToast('Please provide a reason for this adjustment', 'error');
-            return;
-        }
+        if (!adjustSeatsForm.validateForm()) return;
         try {
             setSubmitting(true);
             await licenseService.adjustSeats(selectedLicense.id, adjustSeatsData);
@@ -236,12 +247,13 @@ const LicenseManagement: React.FC = () => {
 
     // Assignment Handlers (Passed to Details)
     const handleUnassign = (assignmentId: number) => {
-        setUnassignData({ assignmentId, reason: '' });
+        unassignForm.resetForm({ assignmentId, reason: '' });
         setShowUnassignModal(true);
     };
 
     const submitUnassign = async () => {
         if (!unassignData.assignmentId) return;
+        if (!unassignForm.validateForm()) return;
         try {
             await licenseService.unassignLicense(unassignData.assignmentId, unassignData.reason);
             showToast('Unassigned successfully', 'success');
@@ -255,22 +267,20 @@ const LicenseManagement: React.FC = () => {
 
     const handleAssign = () => {
         if (selectedLicense) {
-            setAssignData({ userId: 0, notes: '' });
+            assignForm.resetForm({ userId: 0, notes: '' });
             setShowAssignModal(true);
         }
     };
 
     const openAssignModal = (license: License) => {
         setSelectedLicense(license);
-        setAssignData({ userId: 0, notes: '' });
+        assignForm.resetForm({ userId: 0, notes: '' });
         setShowAssignModal(true);
     };
 
     const submitAssign = async () => {
-        if (!selectedLicense || !assignData.userId) {
-            showToast('Please select a user', 'error');
-            return;
-        }
+        if (!selectedLicense) return;
+        if (!assignForm.validateForm()) return;
         try {
             await licenseService.assignLicense(selectedLicense.id, assignData.userId, assignData.notes);
             showToast('License assigned successfully', 'success');
@@ -499,12 +509,6 @@ const LicenseManagement: React.FC = () => {
                 </div>
             </PageHeader>
 
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
-                <StatCard title="Total Licenses" value={stats?.total || 0} subtitle="Unique Software" icon={KeyRound} iconColor="bg-blue-100 text-blue-600" />
-                <StatCard title="Seats Utilization" value={stats?.usedSeats || 0} subtitle={`of ${stats?.totalSeats || 0} Total Seats`} icon={Users} iconColor="bg-purple-100 text-purple-600" />
-                <StatCard title="Expiring Soon" value={licenses.filter(l => isExpiringSoon(l.expiryDate)).length} subtitle="Next 30 Days" icon={CalendarClock} iconColor="bg-amber-100 text-amber-600" />
-                <StatCard title="Expired" value={licenses.filter(l => isExpired(l.expiryDate)).length} subtitle="Action Required" icon={AlertTriangle} iconColor="bg-destructive/10 text-destructive" />
-            </div>
 
             <Card>
                 <div className="border-b px-6 flex items-center justify-between bg-card/50 overflow-x-auto">
@@ -651,6 +655,7 @@ const LicenseManagement: React.FC = () => {
                         onPageChange={setCurrentPage}
                         totalItems={filteredLicenses.length}
                         pageSize={itemsPerPage}
+                        onPageSizeChange={(size) => { setItemsPerPage(size); setCurrentPage(1); }}
                     />
                 </CardContent>
             </Card>
@@ -735,40 +740,39 @@ const LicenseManagement: React.FC = () => {
                                     <span>Currently Used: <b>{selectedLicense.usedSeats}</b></span>
                                 </div>
                             </div>
-                            <div className="space-y-2">
-                                <Label>New Total Seat Count</Label>
+                            <FormField id="adjustSeats" label="New Total Seat Count" required error={adjustSeatsForm.errors.seats}>
                                 <Input
                                     type="number"
                                     min="1"
                                     value={adjustSeatsData.seats}
-                                    onChange={e => setAdjustSeatsData({ ...adjustSeatsData, seats: parseInt(e.target.value) || 0 })}
+                                    onChange={e => adjustSeatsForm.handleChange('seats', parseInt(e.target.value) || 0)}
+                                    onBlur={() => adjustSeatsForm.handleBlur('seats')}
                                 />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>New Used Seat Count</Label>
+                            </FormField>
+                            <FormField id="adjustUsedSeats" label="New Used Seat Count" error={adjustSeatsForm.errors.usedSeats}>
                                 <Input
                                     type="number"
                                     min="0"
                                     max={adjustSeatsData.seats}
                                     value={adjustSeatsData.usedSeats}
-                                    onChange={e => setAdjustSeatsData({ ...adjustSeatsData, usedSeats: parseInt(e.target.value) || 0 })}
+                                    onChange={e => adjustSeatsForm.handleChange('usedSeats', parseInt(e.target.value) || 0)}
+                                    onBlur={() => adjustSeatsForm.handleBlur('usedSeats')}
                                 />
-                            </div>
+                            </FormField>
                             <div className="bg-primary/5 p-2 rounded border border-primary/10 text-xs flex justify-between items-center">
                                 <span className="text-muted-foreground font-medium uppercase tracking-wider">Available After Adjustment</span>
                                 <span className="text-lg font-bold text-primary">
                                     {Math.max(0, adjustSeatsData.seats - adjustSeatsData.usedSeats)}
                                 </span>
                             </div>
-                            <div className="space-y-2">
-                                <Label>Adjustment Reason <span className="text-destructive">*</span></Label>
+                            <FormField id="adjustReason" label="Adjustment Reason" required error={adjustSeatsForm.errors.reason}>
                                 <Input
                                     value={adjustSeatsData.reason}
-                                    onChange={e => setAdjustSeatsData({ ...adjustSeatsData, reason: e.target.value })}
+                                    onChange={e => adjustSeatsForm.handleChange('reason', e.target.value)}
+                                    onBlur={() => adjustSeatsForm.handleBlur('reason')}
                                     placeholder="e.g. Scaling team, Contract update..."
-                                    required
                                 />
-                            </div>
+                            </FormField>
                         </div>
                     )}
                     <DialogFooter>
@@ -789,19 +793,13 @@ const LicenseManagement: React.FC = () => {
                 <DialogContent>
                     <DialogHeader><DialogTitle>Assign License</DialogTitle></DialogHeader>
                     <div className="space-y-4">
-                        <div className="space-y-2">
-                            <Label>Select User</Label>
-                            <select
-                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                                value={assignData.userId}
-                                onChange={e => setAssignData({ ...assignData, userId: parseInt(e.target.value) })}
-                            >
-                                <option value={0}>-- Select User --</option>
-                                {users.map(u => (
-                                    <option key={u.id} value={u.id}>{u.firstName} {u.lastName} ({u.email})</option>
-                                ))}
-                            </select>
-                        </div>
+                        <FormField id="assign-license-user" label="Select User" required error={assignForm.errors.userId}>
+                            <UserSelect
+                                users={users}
+                                value={assignData.userId || null}
+                                onChange={(userId) => assignForm.handleChange('userId', userId ?? 0)}
+                            />
+                        </FormField>
                         <div className="space-y-2">
                             <Label>Notes</Label>
                             <Input value={assignData.notes} onChange={e => setAssignData({ ...assignData, notes: e.target.value })} placeholder="Assignment notes..." />
@@ -820,15 +818,15 @@ const LicenseManagement: React.FC = () => {
                     <DialogHeader><DialogTitle>Unassign License</DialogTitle></DialogHeader>
                     <div className="space-y-4">
                         <p className="text-sm text-muted-foreground">Are you sure you want to remove this license assignment? Please provide a reason for tracking.</p>
-                        <div className="space-y-2">
-                            <Label>Reason for Removal</Label>
+                        <FormField id="unassignReason" label="Reason for Removal" required error={unassignForm.errors.reason}>
                             <Input
                                 value={unassignData.reason}
-                                onChange={e => setUnassignData({ ...unassignData, reason: e.target.value })}
+                                onChange={e => unassignForm.handleChange('reason', e.target.value)}
+                                onBlur={() => unassignForm.handleBlur('reason')}
                                 placeholder="e.g. Employee left company, License no longer needed..."
                                 autoFocus
                             />
-                        </div>
+                        </FormField>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setShowUnassignModal(false)}>Cancel</Button>

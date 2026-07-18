@@ -14,37 +14,89 @@ import { Textarea } from '../../components/ui/textarea';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { Pagination } from '../../components/shared/Pagination';
+import { useTableSearchSort, useResetPageOnChange, SortableHead, TableSearch } from '../../components/shared/useTableSearchSort';
+import { FormField } from '../../components/shared/FormField';
+import { StatusToggle } from '../../components/shared/StatusToggle';
+import { useForm } from '../../hooks/useForm';
+import { useAuth } from '../../hooks/useAuth';
 
 const CategoryMaster: React.FC = () => {
     const [categories, setCategories] = useState<Category[]>([]);
     const [loading, setLoading] = useState(true);
+    const [togglingStatusFor, setTogglingStatusFor] = useState<number | null>(null);
     const { showToast } = useToast();
+    const { hasPermission } = useAuth();
+    const canManage = hasPermission('categories.manage');
 
     const [confirmState, setConfirmState] = useState<{ show: boolean; title: string; message: string; onConfirm: () => void; type?: 'danger' | 'warning' | 'primary' }>({ show: false, title: '', message: '', onConfirm: () => { } });
     const [showModal, setShowModal] = useState(false);
     const [editMode, setEditMode] = useState(false);
     const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
-    const [formData, setFormData] = useState({ name: '', description: '', isActive: true, allowedTargetTypes: ['PERSON'] as string[] });
+    const {
+        values: formData,
+        errors,
+        handleChange,
+        handleBlur,
+        validateForm,
+        resetForm,
+        setValues: setFormValues,
+    } = useForm({ name: '', description: '', isActive: true, allowedTargetTypes: ['PERSON'] as string[] }, {
+        name: {
+            label: 'Category name',
+            required: true,
+            custom: (value) => {
+                const trimmed = String(value).trim();
+                const existing = categories.find(c => c.name.toLowerCase() === trimmed.toLowerCase());
+                if (existing && (!editMode || existing.id !== selectedCategoryId)) {
+                    return `Category "${trimmed}" already exists.`;
+                }
+                return null;
+            },
+        },
+    });
+
+    // Search / filter / sort
+    const [statusFilter, setStatusFilter] = useState('all');
+    const listFilters = React.useMemo(
+        () => [(c: Category) => statusFilter === 'all' || (statusFilter === 'active' ? c.isActive : !c.isActive)],
+        [statusFilter]
+    );
+    const { searchTerm, setSearchTerm, sortBy, sortOrder, handleSort, result: visibleCategories, resetKey } =
+        useTableSearchSort(categories, {
+            searchIn: (c) => [c.name, c.description, ...(c.allowedTargetTypes || [])],
+            sortValue: (c, column) => {
+                switch (column) {
+                    case 'id': return c.id;
+                    case 'description': return c.description;
+                    case 'status': return c.isActive ? 'Active' : 'Inactive';
+                    case 'created': return (c as any).createdAt ?? '';
+                    default: return c.name;
+                }
+            },
+            initialSort: 'name',
+            filters: listFilters,
+        });
 
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 10;
+    const [itemsPerPage, setItemsPerPage] = useState(10);
+    useResetPageOnChange(`${resetKey}|${statusFilter}`, setCurrentPage);
 
     const paginatedCategories = React.useMemo(() => {
         const start = (currentPage - 1) * itemsPerPage;
-        return categories.slice(start, start + itemsPerPage);
-    }, [categories, currentPage, itemsPerPage]);
+        return visibleCategories.slice(start, start + itemsPerPage);
+    }, [visibleCategories, currentPage, itemsPerPage]);
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => { loadCategories(); }, []);
 
     const loadCategories = async () => { try { setLoading(true); setCategories(await categoryService.getCategories()); } catch { showToast('Failed to load categories', 'error'); } finally { setLoading(false); } };
 
-    const handleOpenCreate = () => { setEditMode(false); setFormData({ name: '', description: '', isActive: true, allowedTargetTypes: ['PERSON'] }); setShowModal(true); };
+    const handleOpenCreate = () => { setEditMode(false); resetForm({ name: '', description: '', isActive: true, allowedTargetTypes: ['PERSON'] }); setShowModal(true); };
 
     const handleOpenEdit = (category: Category) => {
         setEditMode(true); setSelectedCategoryId(category.id);
-        setFormData({ name: category.name, description: category.description, isActive: category.isActive, allowedTargetTypes: category.allowedTargetTypes || ['PERSON'] });
+        resetForm({ name: category.name, description: category.description, isActive: category.isActive, allowedTargetTypes: category.allowedTargetTypes || ['PERSON'] });
         setShowModal(true);
     };
 
@@ -55,16 +107,46 @@ const CategoryMaster: React.FC = () => {
         });
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        const nameTrimmed = formData.name.trim();
-        const existingCategory = categories.find(c => c.name.toLowerCase() === nameTrimmed.toLowerCase());
-        
-        if (existingCategory && (!editMode || existingCategory.id !== selectedCategoryId)) {
-            showToast(`Cannot save: Category "${nameTrimmed}" is already available in the system.`, 'error');
+    const applyCategoryStatus = async (category: Category, next: boolean) => {
+        setTogglingStatusFor(category.id);
+        setCategories(prev => prev.map(c => (c.id === category.id ? { ...c, isActive: next } : c)));
+        try {
+            await categoryService.updateCategory(category.id, {
+                name: category.name,
+                description: category.description,
+                isActive: next,
+                allowedTargetTypes: category.allowedTargetTypes,
+            });
+            showToast(`Category ${next ? 'activated' : 'deactivated'}`, 'success');
+        } catch (error: any) {
+            setCategories(prev => prev.map(c => (c.id === category.id ? { ...c, isActive: category.isActive } : c)));
+            showToast(error.response?.data?.message || 'Failed to update category status', 'error');
+        } finally {
+            setTogglingStatusFor(null);
+        }
+    };
+
+    const handleToggleStatus = (category: Category, next: boolean) => {
+        if (next) {
+            applyCategoryStatus(category, next);
             return;
         }
+        setConfirmState({
+            show: true,
+            title: 'Deactivate Category',
+            type: 'warning',
+            message: `Deactivate "${category.name}"? Existing assets keep this category, but it will no longer be offered when creating or editing assets. Reactivate at any time.`,
+            onConfirm: () => {
+                setConfirmState(prev => ({ ...prev, show: false }));
+                applyCategoryStatus(category, next);
+            },
+        });
+    };
 
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!validateForm()) return;
+        const nameTrimmed = formData.name.trim();
         try {
             if (editMode && selectedCategoryId) await categoryService.updateCategory(selectedCategoryId, { ...formData, name: nameTrimmed });
             else await categoryService.createCategory({ ...formData, name: nameTrimmed });
@@ -82,11 +164,50 @@ const CategoryMaster: React.FC = () => {
 
             <Card>
                 <CardContent className="p-0">
+                    <div className="flex flex-wrap items-center gap-3 p-4">
+                        <TableSearch
+                            value={searchTerm}
+                            onChange={setSearchTerm}
+                            placeholder="Search categories..."
+                            label="Search categories"
+                        />
+                        <select
+                            className="flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                            aria-label="Filter by status"
+                        >
+                            <option value="all">All statuses</option>
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                        </select>
+                        <span className="text-xs text-muted-foreground ml-auto">
+                            {visibleCategories.length} of {categories.length}
+                        </span>
+                    </div>
                     <Table>
-                        <TableHeader><TableRow><TableHead className="w-16">ID</TableHead><TableHead>Category Name</TableHead><TableHead>Description</TableHead><TableHead>Target Policies</TableHead><TableHead>Status</TableHead><TableHead>Created</TableHead><TableHead className="w-[50px]"></TableHead></TableRow></TableHeader>
+                        <TableHeader><TableRow>
+                            <SortableHead column="id" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-16">ID</SortableHead>
+                            <SortableHead column="name" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort}>Category Name</SortableHead>
+                            <SortableHead column="description" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort}>Description</SortableHead>
+                            <TableHead>Target Policies</TableHead>
+                            <SortableHead column="status" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort}>Status</SortableHead>
+                            <SortableHead column="created" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort}>Created</SortableHead>
+                            <TableHead className="w-[50px]"></TableHead>
+                        </TableRow></TableHeader>
                         <TableBody>
                             {paginatedCategories.length === 0 ? (
-                                <TableRow><TableCell colSpan={6} className="text-center py-12"><FolderOpen className="h-12 w-12 text-muted-foreground/30 mx-auto mb-2" /><p className="text-muted-foreground">No categories found</p><p className="text-xs text-muted-foreground">Create your first category to get started</p></TableCell></TableRow>
+                                <TableRow><TableCell colSpan={7} className="text-center py-12">
+                                    <FolderOpen className="h-12 w-12 text-muted-foreground/30 mx-auto mb-2" />
+                                    {categories.length === 0 ? (
+                                        <>
+                                            <p className="text-muted-foreground">No categories found</p>
+                                            <p className="text-xs text-muted-foreground">Create your first category to get started</p>
+                                        </>
+                                    ) : (
+                                        <p className="text-muted-foreground">No categories match your search</p>
+                                    )}
+                                </TableCell></TableRow>
                             ) : paginatedCategories.map(category => (
                                 <TableRow key={category.id}>
                                     <TableCell className="text-muted-foreground">{category.id}</TableCell>
@@ -99,7 +220,14 @@ const CategoryMaster: React.FC = () => {
                                             )) || <Badge variant="outline" className="text-[10px] uppercase font-bold">PERSON</Badge>}
                                         </div>
                                     </TableCell>
-                                    <TableCell>{category.isActive ? <Badge variant="success">Active</Badge> : <Badge variant="destructive">Inactive</Badge>}</TableCell>
+                                    <TableCell>
+                                        <StatusToggle
+                                            checked={category.isActive}
+                                            onToggle={canManage ? (next) => handleToggleStatus(category, next) : undefined}
+                                            loading={togglingStatusFor === category.id}
+                                            ariaLabel={`Toggle status for ${category.name}`}
+                                        />
+                                    </TableCell>
                                     <TableCell className="text-sm text-muted-foreground">{new Date(category.createdAt).toLocaleDateString()}</TableCell>
                                     <TableCell>
                                         <ActionDropdown actions={[
@@ -113,19 +241,24 @@ const CategoryMaster: React.FC = () => {
                     </Table>
                     <Pagination
                         currentPage={currentPage}
-                        totalPages={Math.ceil(categories.length / itemsPerPage)}
+                        totalPages={Math.ceil(visibleCategories.length / itemsPerPage)}
                         onPageChange={setCurrentPage}
-                        totalItems={categories.length}
+                        totalItems={visibleCategories.length}
                         pageSize={itemsPerPage}
+                        onPageSizeChange={(size) => { setItemsPerPage(size); setCurrentPage(1); }}
                     />
                 </CardContent>
             </Card>
 
             <Dialog open={showModal} onOpenChange={(open) => { if (!open) setShowModal(false); }}>
                 <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>{editMode ? 'Edit Category' : 'Create New Category'}</DialogTitle></DialogHeader>
-                    <form onSubmit={handleSubmit} className="space-y-4">
-                        <div className="space-y-2"><Label>Category Name <span className="text-destructive">*</span></Label><Input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required placeholder="Enter category name" /></div>
-                        <div className="space-y-2"><Label>Description</Label><Textarea rows={3} value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="Enter category description" /></div>
+                    <form onSubmit={handleSubmit} noValidate className="space-y-4">
+                        <FormField id="category-name" label="Category Name" required error={errors.name}>
+                            <Input value={formData.name} onChange={(e) => handleChange('name', e.target.value)} onBlur={() => handleBlur('name')} placeholder="Enter category name" />
+                        </FormField>
+                        <FormField id="category-description" label="Description">
+                            <Textarea rows={3} value={formData.description} onChange={(e) => handleChange('description', e.target.value)} placeholder="Enter category description" />
+                        </FormField>
                         <div className="space-y-2">
                             <Label>Allowed Target Types</Label>
                             <div className="flex flex-wrap gap-4 pt-1">
@@ -140,7 +273,7 @@ const CategoryMaster: React.FC = () => {
                                                 const newTypes = e.target.checked
                                                     ? [...formData.allowedTargetTypes, type]
                                                     : formData.allowedTargetTypes.filter(t => t !== type);
-                                                setFormData({ ...formData, allowedTargetTypes: newTypes });
+                                                setFormValues(prev => ({ ...prev, allowedTargetTypes: newTypes }));
                                             }}
                                         />
                                         <Label htmlFor={`target-${type}`} className="cursor-pointer text-sm font-normal">{type}</Label>
@@ -150,7 +283,7 @@ const CategoryMaster: React.FC = () => {
                         </div>
 
                         <div className="flex items-center gap-2">
-                            <input type="checkbox" id="isActive" className="h-4 w-4 rounded border-input" checked={formData.isActive} onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })} />
+                            <input type="checkbox" id="isActive" className="h-4 w-4 rounded border-input" checked={formData.isActive} onChange={(e) => setFormValues(prev => ({ ...prev, isActive: e.target.checked }))} />
                             <Label htmlFor="isActive" className="cursor-pointer">Active</Label>
                         </div>
                         <DialogFooter><Button type="button" variant="outline" onClick={() => setShowModal(false)}>Cancel</Button><Button type="submit">{editMode ? 'Update' : 'Create'} Category</Button></DialogFooter>

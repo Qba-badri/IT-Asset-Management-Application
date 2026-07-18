@@ -6,16 +6,22 @@ import {
   IsBoolean,
   MaxLength,
   Min,
+  IsNotEmpty,
 } from 'class-validator';
+import { Observe } from '../../../common/validation/observe.decorator';
 import { ReturnPolicy, TrackMode } from '../../../entities/catalog-item.entity';
 
 export class CreateCatalogItemDto {
   @IsString()
   @MaxLength(50)
+  @Observe('Backfill 2026-07: already mandatory, but accepted an empty string')
+  @IsNotEmpty()
   sku: string;
 
   @IsString()
   @MaxLength(300)
+  @Observe('Backfill 2026-07: already mandatory, but accepted an empty string')
+  @IsNotEmpty()
   name: string;
 
   @IsOptional()

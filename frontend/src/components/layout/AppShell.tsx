@@ -9,7 +9,6 @@ import {
   Settings,
   Users,
   Shield,
-  Lock,
   Tag,
   ChevronDown,
   ChevronLeft,
@@ -17,15 +16,15 @@ import {
   Menu,
   X,
   Loader2,
-  Factory,
-  Building2,
   ClipboardList,
-  Activity,
   Archive,
   FileSearch,
+  Briefcase,
+  Bell,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { authService } from "../../services/authService";
+import { useCurrency } from "../../context/CurrencyContext";
 import { useAuth } from "../../hooks/useAuth";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Button } from "../ui/button";
@@ -52,6 +51,8 @@ interface NavItem {
   path: string;
   /** Backend permission slug required to see this item. Omit = always visible. */
   requiredPermission?: string;
+  /** Visible if the user holds ANY of these slugs (used for multi-tier items). */
+  requiredAnyPermission?: string[];
 }
 
 interface NavGroup {
@@ -71,10 +72,16 @@ function isNavGroup(item: NavEntry): item is NavGroup {
 // This mirrors the backend @Permissions() decorator exactly.
 
 const navigation: NavEntry[] = [
-  { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
+  // Org dashboard — only for users with a dashboard scope (global or department).
+  // Standard Users (no dashboard.view.*) land on My Portfolio instead.
+  { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard", requiredAnyPermission: ["dashboard.view.all", "dashboard.view.department"] },
+  { label: "My Portfolio", icon: Briefcase, path: "/dashboard/profile" },
   { label: "Assets",    icon: Monitor,         path: "/dashboard/assets",    requiredPermission: "assets.view" },
   { label: "Licenses",  icon: KeyRound,        path: "/dashboard/licenses",  requiredPermission: "licenses.view" },
-  { label: "Inventory", icon: Archive,         path: "/dashboard/inventory", requiredPermission: "inventory.view" },
+  // Gates on inventory-mgmt.view: /dashboard/inventory renders InventoryManagementModule,
+  // which calls /api/inventory-management/* exclusively. The inventory.* slugs belong to
+  // the separate catalog/stock module.
+  { label: "Inventory", icon: Archive,         path: "/dashboard/inventory", requiredPermission: "inventory-mgmt.view" },
   { label: "Analytics", icon: BarChart3,       path: "/dashboard/analytics", requiredPermission: "reports.view" },
   {
     label: "Audit",
@@ -90,18 +97,15 @@ const navigation: NavEntry[] = [
     label: "Admin",
     icon: Settings,
     children: [
-      { label: "Users",                icon: Users,         path: "/dashboard/admin/users",                requiredPermission: "users.view" },
-      { label: "Roles",                icon: Shield,        path: "/dashboard/admin/roles",                requiredPermission: "roles.view" },
-      { label: "Permissions",          icon: Lock,          path: "/dashboard/admin/permissions",          requiredPermission: "roles.view" },
-      { label: "Asset Categories",     icon: Tag,           path: "/dashboard/admin/categories",           requiredPermission: "categories.manage" },
+      // users.view is a read permission that Audit pages also require — gate the admin
+      // screen on manage-level rights so read-only roles don't see the Admin group.
+      { label: "Users",                icon: Users,         path: "/dashboard/admin/users",                requiredAnyPermission: ["users.manage", "users.create", "users.edit"] },
+      { label: "Access Control",       icon: Shield,        path: "/dashboard/admin/access-control",       requiredPermission: "roles.view" },
+      { label: "Asset Setup",          icon: Tag,           path: "/dashboard/admin/asset-setup",          requiredAnyPermission: ["categories.manage", "brands.manage", "vendors.manage", "assets.manage"] },
       { label: "Inventory Categories", icon: Package,       path: "/dashboard/admin/inventory-categories", requiredPermission: "categories.manage" },
-      { label: "Brands",               icon: Factory,       path: "/dashboard/admin/brands",               requiredPermission: "brands.manage" },
-      { label: "Vendors",              icon: Building2,     path: "/dashboard/admin/vendors",              requiredPermission: "vendors.manage" },
       { label: "License Plans",        icon: KeyRound,      path: "/dashboard/admin/plans",                requiredPermission: "licenses.manage" },
-      { label: "Conditions",           icon: ClipboardList, path: "/dashboard/admin/conditions",           requiredPermission: "assets.manage" },
-      { label: "Statuses",             icon: Activity,      path: "/dashboard/admin/statuses",             requiredPermission: "assets.manage" },
-      { label: "Disposal Methods",     icon: Archive,       path: "/dashboard/admin/disposal-methods",     requiredPermission: "assets.manage" },
       { label: "System Settings",      icon: Settings,      path: "/dashboard/admin/settings",             requiredPermission: "settings.manage" },
+      { label: "Notifications",        icon: Bell,          path: "/dashboard/admin/notifications",        requiredPermission: "settings.manage" },
     ],
   },
 ];
@@ -112,7 +116,8 @@ export default function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   // useAuth reads permission slugs from localStorage — synced with the backend PermissionsGuard
-  const { hasPermission, roleName } = useAuth();
+  const { hasPermission, hasAnyPermission, roleName } = useAuth();
+  const { availableCurrencies, selectedCurrency, setCurrency, reloadCurrencies } = useCurrency();
 
   const [collapsed,      setCollapsed]      = useState(false);
   const [mobileOpen,     setMobileOpen]     = useState(false);
@@ -125,6 +130,10 @@ export default function AppShell() {
       .then(setProfile)
       .catch((err) => console.error("Failed to load user profile", err))
       .finally(() => setLoadingUser(false));
+    // AppShell only mounts once authenticated — fetch the auth-guarded currency
+    // list here (the fetch on app mount happens on the login screen and 401s).
+    reloadCurrencies();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleLogout = async () => {
@@ -153,8 +162,10 @@ export default function AppShell() {
 
   // ── Permission-based nav filtering ──────────────────────────────────────────
   /** Is a flat nav item visible to this user? */
-  const isItemVisible = (item: NavItem): boolean =>
-    !item.requiredPermission || hasPermission(item.requiredPermission);
+  const isItemVisible = (item: NavItem): boolean => {
+    if (item.requiredAnyPermission) return hasAnyPermission(item.requiredAnyPermission);
+    return !item.requiredPermission || hasPermission(item.requiredPermission);
+  };
 
   /** Build the filtered nav list — keeps only items the user can access. */
   const filteredNav: NavEntry[] = navigation.reduce<NavEntry[]>((acc, entry) => {
@@ -351,6 +362,32 @@ export default function AppShell() {
           </h1>
 
           <div className="flex-1" />
+
+          {/* Global display-currency switcher — presentation only, storage stays in base currency */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-9 gap-1 px-3 font-medium">
+                <span>{selectedCurrency.symbol}</span>
+                <span>{selectedCurrency.code}</span>
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40 max-h-72 overflow-y-auto">
+              {availableCurrencies.map((c) => (
+                <DropdownMenuItem
+                  key={c.code}
+                  onClick={() => setCurrency(c.code)}
+                  className={cn(
+                    "cursor-pointer gap-2",
+                    c.code === selectedCurrency.code && "bg-accent font-semibold"
+                  )}
+                >
+                  <span className="w-8 text-muted-foreground">{c.symbol}</span>
+                  <span>{c.code}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           {/* User menu */}
           <DropdownMenu>

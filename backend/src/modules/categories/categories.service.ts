@@ -4,14 +4,18 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Category } from '../../entities/category.entity';
+import { AuditEventsService } from '../audit-events/audit-events.service';
+import { AuditAction } from '../../entities/audit-event.entity';
 
 @Injectable()
 export class CategoriesService {
   constructor(
     @InjectRepository(Category)
     private categoryRepository: Repository<Category>,
+    private dataSource: DataSource,
+    private auditEvents: AuditEventsService,
   ) { }
 
   async findAll(): Promise<Category[]> {
@@ -57,6 +61,7 @@ export class CategoriesService {
     description: string,
     isActive: boolean,
     allowedTargetTypes?: string[],
+    actorId?: number,
   ): Promise<Category> {
     const category = await this.findOne(id);
 
@@ -70,6 +75,10 @@ export class CategoriesService {
       }
     }
 
+    const statusChanging =
+      isActive !== undefined && isActive !== category.isActive;
+    const from = category.isActive;
+
     category.name = name;
     category.description = description;
     category.isActive = isActive;
@@ -77,7 +86,25 @@ export class CategoriesService {
       category.allowedTargetTypes = allowedTargetTypes;
     }
 
-    return this.categoryRepository.save(category);
+    if (!statusChanging) {
+      return this.categoryRepository.save(category);
+    }
+
+    // A status change and its audit record commit atomically.
+    return this.dataSource.transaction(async (manager) => {
+      const saved = await manager.save(category);
+      await this.auditEvents.logEvent(
+        {
+          action: AuditAction.UPDATE,
+          entityType: 'Category',
+          entityId: id,
+          actorId,
+          metadata: { field: 'isActive', from, to: isActive, name: category.name },
+        },
+        manager,
+      );
+      return saved;
+    });
   }
 
   async delete(id: number): Promise<void> {

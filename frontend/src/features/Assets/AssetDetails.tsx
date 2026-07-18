@@ -14,12 +14,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { Badge } from '../../components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { useCurrency } from '../../context/CurrencyContext';
+import { useAuth } from '../../hooks/useAuth';
 
 const AssetDetails: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const { showToast } = useToast();
     const { formatCost } = useCurrency();
+    // Mirrors the backend guard: edit and depreciation writes require assets.manage
+    const { hasPermission } = useAuth();
+    const canManage = hasPermission('assets.manage');
     const [asset, setAsset] = useState<Asset | null>(null);
     const [photos, setPhotos] = useState<AssetPhoto[]>([]);
     const [history, setHistory] = useState<any[]>([]);
@@ -366,7 +370,7 @@ const AssetDetails: React.FC = () => {
                     <Card>
                         <CardHeader className="pb-3 flex flex-row items-center justify-between">
                             <CardTitle>Financial & Depreciation</CardTitle>
-                            {asset.acquisitionType !== 'rented' && (
+                            {canManage && asset.acquisitionType !== 'rented' && (
                                 <Button
                                     variant="ghost"
                                     size="icon"
@@ -406,7 +410,9 @@ const AssetDetails: React.FC = () => {
                     <Card>
                         <CardContent className="pt-6 space-y-2">
                             <Button variant="outline" className="w-full justify-start gap-2" onClick={() => navigate(`/dashboard/assets/${id}/audit`)}><ExternalLink className="h-4 w-4" />View Audit Log</Button>
-                            <Button variant="outline" className="w-full justify-start gap-2" onClick={() => navigate('/dashboard/assets', { state: { editAsset: asset } })}><Edit className="h-4 w-4" />Edit Properties</Button>
+                            {canManage && (
+                                <Button variant="outline" className="w-full justify-start gap-2" onClick={() => navigate('/dashboard/assets', { state: { editAsset: asset } })}><Edit className="h-4 w-4" />Edit Properties</Button>
+                            )}
                         </CardContent>
                     </Card>
                 </div>

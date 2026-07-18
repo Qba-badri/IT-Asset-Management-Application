@@ -6,11 +6,13 @@ import { Role } from '../../entities/role.entity';
 import { Permission } from '../../entities/permission.entity';
 import { User } from '../../entities/user.entity';
 import { AuthModule } from '../auth/auth.module';
+import { AuditEventsModule } from '../audit-events/audit-events.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Role, Permission, User]),
     AuthModule,
+    AuditEventsModule,
   ],
   controllers: [RbacController],
   providers: [RbacService],

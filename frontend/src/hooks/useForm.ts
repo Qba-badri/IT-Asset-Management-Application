@@ -1,6 +1,9 @@
 import { useState, useCallback } from 'react';
+import { resolveValidationMessage, VALIDATION_MESSAGE_KEYS, humanizeFieldName } from '../lib/validation/messages';
 
 export interface ValidationRule {
+    /** Human label used in error messages; falls back to a humanized field name. */
+    label?: string;
     required?: boolean;
     email?: boolean;
     phone?: boolean;
@@ -28,35 +31,41 @@ export function useForm<T extends Record<string, any>>(
         const rule = config[name as string];
         if (!rule) return null;
 
+        const label = rule.label ?? humanizeFieldName(name as string);
+
         if (rule.required && (value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0))) {
-            return 'This field is required.';
+            return resolveValidationMessage(VALIDATION_MESSAGE_KEYS.required, { label });
         }
 
         if (value) {
             if (rule.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
-                return 'Please enter a valid email address.';
+                return resolveValidationMessage(VALIDATION_MESSAGE_KEYS.email, { label });
             }
             if (rule.phone && !/^\+?[1-9]\d{1,14}$/.test(value.replace(/\D/g, ''))) {
-                return 'Please enter a valid phone number.';
+                return resolveValidationMessage(VALIDATION_MESSAGE_KEYS.phone, { label });
             }
             if (rule.minLength && String(value).length < rule.minLength) {
-                return `Minimum ${rule.minLength} characters required.`;
+                return resolveValidationMessage(VALIDATION_MESSAGE_KEYS.minLength, { label, min: rule.minLength });
             }
             if (rule.maxLength && String(value).length > rule.maxLength) {
-                return `Maximum ${rule.maxLength} characters allowed.`;
+                return resolveValidationMessage(VALIDATION_MESSAGE_KEYS.maxLength, { label, max: rule.maxLength });
             }
             if (rule.min !== undefined && Number(value) < rule.min) {
-                return `Value must be at least ${rule.min}.`;
+                return resolveValidationMessage(VALIDATION_MESSAGE_KEYS.min, { label, min: rule.min });
             }
             if (rule.max !== undefined && Number(value) > rule.max) {
-                return `Value must be at most ${rule.max}.`;
+                return resolveValidationMessage(VALIDATION_MESSAGE_KEYS.max, { label, max: rule.max });
             }
             if (rule.pattern && !rule.pattern.test(value)) {
-                return 'Invalid format.';
+                return resolveValidationMessage(VALIDATION_MESSAGE_KEYS.pattern, { label });
             }
-            if (rule.custom) {
-                return rule.custom(value, values);
-            }
+        }
+
+        // Runs even for empty values: a custom rule may express conditional
+        // requiredness (e.g. "location required when target is LOCATION"),
+        // which nesting inside `if (value)` silently disabled.
+        if (rule.custom) {
+            return rule.custom(value, values);
         }
 
         return null;
@@ -111,6 +120,15 @@ export function useForm<T extends Record<string, any>>(
         setTouched({});
     }, [initialValues]);
 
+    /** Maps errors found outside the declarative rules (e.g. a server 400) onto fields. */
+    const setFieldErrors = useCallback((fieldErrors: Partial<{ [K in keyof T]: string }>) => {
+        setErrors(prev => ({ ...prev, ...fieldErrors }));
+        setTouched(prev => ({
+            ...prev,
+            ...Object.keys(fieldErrors).reduce((acc, key) => ({ ...acc, [key]: true }), {}),
+        }));
+    }, []);
+
     return {
         values,
         errors,
@@ -119,6 +137,7 @@ export function useForm<T extends Record<string, any>>(
         handleBlur,
         validateForm,
         resetForm,
-        setValues
+        setValues,
+        setFieldErrors
     };
 }

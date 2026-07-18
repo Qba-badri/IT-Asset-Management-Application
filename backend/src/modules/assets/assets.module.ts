@@ -12,11 +12,13 @@ import { Brand } from '../../entities/brand.entity';
 import { Vendor } from '../../entities/vendor.entity';
 import { AuditEvent } from '../../entities/audit-event.entity';
 import { AuthModule } from '../auth/auth.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Asset, AssetHistory, AssetPhoto, User, Category, Brand, Vendor, AuditEvent]),
     AuthModule,
+    NotificationsModule,
   ],
   controllers: [AssetsController],
   providers: [AssetsService],

@@ -11,6 +11,7 @@ import { StockLedger } from '../../entities/stock-ledger.entity';
 import { AuditEvent } from '../../entities/audit-event.entity';
 import { User } from '../../entities/user.entity';
 import { StockModule } from '../stock/stock.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { StockModule } from '../stock/stock.module';
       User,
     ]),
     StockModule,
+    NotificationsModule,
   ],
   controllers: [AssignmentsController],
   providers: [AssignmentsService],

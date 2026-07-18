@@ -23,6 +23,14 @@ export class Role {
   @Column({ default: true, name: 'is_active' })
   isActive: boolean;
 
+  /**
+   * Built-in roles (the seeded Admin role) are marked as system roles.
+   * A system role cannot be renamed, deactivated, or deleted. This flag is
+   * never writable through the API — only migrations/seeds set it.
+   */
+  @Column({ default: false, name: 'is_system' })
+  isSystem: boolean;
+
   @ManyToMany(() => Permission)
   @JoinTable({
     name: 'role_permissions', // Name of the junction table

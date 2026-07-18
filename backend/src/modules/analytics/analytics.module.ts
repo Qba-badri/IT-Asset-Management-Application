@@ -31,10 +31,12 @@ import { StockLedger } from '../../entities/stock-ledger.entity';
 import { AuditLog } from '../../entities/audit-log.entity';
 import { AuditEvent } from '../../entities/audit-event.entity';                     // KPI 20
 import { SettingsModule } from '../settings/settings.module';
+import { CurrenciesModule } from '../currencies/currencies.module';
 
 @Module({
   imports: [
     SettingsModule,
+    CurrenciesModule,
     TypeOrmModule.forFeature([
       Asset,
       AssetUnit,

@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Search, ChevronLeft, ChevronRight
+  Search
 } from 'lucide-react';
 import { reportsService, AssetHistory, DashboardSummary } from '../../services/reportsService';
 import { StockLedgerEntry } from '../../services/stockService';
 import { Assignment } from '../../services/assignmentsService';
 import { useToast } from '../../context/ToastContext';
 import { PageHeader } from '../../components/shared/PageHeader';
+import { Pagination } from '../../components/shared/Pagination';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
@@ -79,7 +80,7 @@ const LedgerTab: React.FC = () => {
   const [reason, setReason] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const pageSize = 50;
+  const [pageSize, setPageSize] = useState(50);
 
   const fetch = useCallback(async () => {
     try {
@@ -91,7 +92,7 @@ const LedgerTab: React.FC = () => {
       setEntries(r.data);
       setTotal(r.total);
     } catch { showToast('Failed to load ledger', 'error'); }
-  }, [page, reason, startDate, endDate]);
+  }, [page, pageSize, reason, startDate, endDate]);
 
   useEffect(() => { fetch(); }, [fetch]);
   const totalPages = Math.ceil(total / pageSize);
@@ -143,15 +144,14 @@ const LedgerTab: React.FC = () => {
               ))}
             </TableBody>
           </Table>
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t bg-muted/40">
-              <span className="text-sm text-muted-foreground">Page {page} / {totalPages}</span>
-              <div className="flex gap-1">
-                <Button variant="ghost" size="icon" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}><ChevronLeft className="w-4 h-4" /></Button>
-                <Button variant="ghost" size="icon" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}><ChevronRight className="w-4 h-4" /></Button>
-              </div>
-            </div>
-          )}
+          <Pagination
+            currentPage={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            totalItems={total}
+            pageSize={pageSize}
+            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          />
         </CardContent>
       </Card>
     </div>

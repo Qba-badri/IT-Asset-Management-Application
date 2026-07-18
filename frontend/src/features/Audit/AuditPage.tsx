@@ -1,13 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  ChevronLeft, ChevronRight
-} from 'lucide-react';
 import { auditEventsService, AuditEvent, AuditAction, AuditEventQuery } from '../../services/auditEventsService';
 import { useToast } from '../../context/ToastContext';
 import { PageHeader } from '../../components/shared/PageHeader';
+import { Pagination } from '../../components/shared/Pagination';
 import { Card, CardContent } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
-import { Button } from '../../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 
@@ -21,7 +18,7 @@ const AuditPage: React.FC = () => {
   const [entityTypeFilter, setEntityTypeFilter] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const pageSize = 50;
+  const [pageSize, setPageSize] = useState(50);
 
   const fetchEvents = useCallback(async () => {
     setLoading(true);
@@ -39,7 +36,7 @@ const AuditPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, actionFilter, entityTypeFilter, startDate, endDate]);
+  }, [page, pageSize, actionFilter, entityTypeFilter, startDate, endDate]);
 
   useEffect(() => { fetchEvents(); }, [fetchEvents]);
   const totalPages = Math.ceil(total / pageSize);
@@ -133,15 +130,14 @@ const AuditPage: React.FC = () => {
               ))}
             </TableBody>
           </Table>
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t bg-muted/40">
-              <span className="text-sm text-muted-foreground">Page {page} of {totalPages}</span>
-              <div className="flex gap-1">
-                <Button variant="ghost" size="icon" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}><ChevronLeft className="w-4 h-4" /></Button>
-                <Button variant="ghost" size="icon" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}><ChevronRight className="w-4 h-4" /></Button>
-              </div>
-            </div>
-          )}
+          <Pagination
+            currentPage={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            totalItems={total}
+            pageSize={pageSize}
+            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          />
         </CardContent>
       </Card>
     </div>

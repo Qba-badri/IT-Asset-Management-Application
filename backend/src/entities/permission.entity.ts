@@ -20,6 +20,14 @@ export class Permission {
   @Column()
   module: string; // e.g., 'Assets', 'Users'
 
+  /**
+   * Soft-deactivation. An inactive permission stays attached to its roles
+   * (mappings are preserved) but grants no access and cannot be newly
+   * assigned. Enforced in effectivePermissions() and RbacService.
+   */
+  @Column({ name: 'is_active', default: true })
+  isActive: boolean;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

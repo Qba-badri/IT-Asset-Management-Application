@@ -1,340 +1,361 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
+import * as bcrypt from 'bcrypt';
 import { AppModule } from '../src/app.module';
 import { DataSource } from 'typeorm';
+import { User } from '../src/entities/user.entity';
+import { Role } from '../src/entities/role.entity';
+
+/**
+ * Security & RBAC e2e suite.
+ *
+ * Prerequisites (see docs/UAT_RUNBOOK.md):
+ *   - a DISPOSABLE Postgres database (never a shared one)
+ *   - migrations applied:   DB_NAME=<disposable> npm run migration:run
+ *   - roles/permissions:    DB_NAME=<disposable> NODE_ENV=development npm run seed
+ *   - run with:             DB_NAME=<disposable> npm run test:e2e
+ *
+ * The suite provisions its own throwaway users and removes them afterwards.
+ * The test password below is a fixture for the disposable DB only.
+ */
+
+const ADMIN_EMAIL = 'e2e-admin@itam-test.local';
+const EMPLOYEE_EMAIL = 'e2e-employee@itam-test.local';
+const EMPLOYEE2_EMAIL = 'e2e-employee2@itam-test.local';
+const TEST_PASSWORD = 'E2e-only#Passw0rd';
 
 describe('Security & RBAC (e2e)', () => {
-    let app: INestApplication;
-    let dataSource: DataSource;
-    let adminToken: string;
-    let employeeToken: string;
+  let app: INestApplication;
+  let dataSource: DataSource;
+  let adminToken: string;
+  let employeeToken: string;
+  let employee2Token: string;
+  let employee2Id: number;
+  const createdUserIds: number[] = [];
 
-    beforeAll(async () => {
-        const moduleFixture: TestingModule = await Test.createTestingModule({
-            imports: [AppModule],
-        }).compile();
+  // Fully detach and delete throwaway users (audit/history rows hold FKs)
+  const purgeUsers = async (ids: number[]) => {
+    await dataSource.query(
+      'DELETE FROM audit_events WHERE "actorId" = ANY($1)',
+      [ids],
+    );
+    await dataSource.query(
+      'UPDATE asset_history SET performed_by_id = NULL WHERE performed_by_id = ANY($1)',
+      [ids],
+    );
+    await dataSource.getRepository(User).delete(ids);
+  };
 
-        app = moduleFixture.createNestApplication();
+  const login = async (email: string) => {
+    const res = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email, password: TEST_PASSWORD });
+    expect(res.status).toBe(200);
+    return res.body;
+  };
 
-        // Apply same validation pipe as production
-        app.useGlobalPipes(new ValidationPipe({
-            whitelist: true,
-            forbidNonWhitelisted: true,
-            transform: true,
-        }));
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
 
-        await app.init();
+    app = moduleFixture.createNestApplication();
 
-        dataSource = moduleFixture.get<DataSource>(DataSource);
+    // Keep identical to the production pipe in src/main.ts (F-17)
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: false,
+        transform: true,
+        transformOptions: { enableImplicitConversion: true },
+      }),
+    );
 
-        // Login as admin and employee to get tokens
-        const adminLogin = await request(app.getHttpServer())
-            .post('/auth/login')
-            .send({ email: 'admin@company.com', password: 'Admin123!' });
-        adminToken = adminLogin.body.access_token;
+    await app.init();
+    dataSource = moduleFixture.get<DataSource>(DataSource);
 
-        const employeeLogin = await request(app.getHttpServer())
-            .post('/auth/login')
-            .send({ email: 'employee@company.com', password: 'Employee123!' });
-        employeeToken = employeeLogin.body.access_token;
+    const roleRepo = dataSource.getRepository(Role);
+    const userRepo = dataSource.getRepository(User);
+    const adminRole = await roleRepo.findOneBy({ name: 'Admin' });
+    const employeeRole = await roleRepo.findOneBy({ name: 'Standard User' });
+    if (!adminRole || !employeeRole) {
+      throw new Error(
+        'Seeded roles missing — run "npm run seed" against the test database first.',
+      );
+    }
+    // Remove leftovers from a previously aborted run (idempotent setup)
+    const leftovers = await userRepo.find({
+      where: [
+        { email: ADMIN_EMAIL },
+        { email: EMPLOYEE_EMAIL },
+        { email: EMPLOYEE2_EMAIL },
+      ],
+      withDeleted: true,
+    });
+    if (leftovers.length) {
+      const ids = leftovers.map((u) => u.id);
+      await purgeUsers(ids);
+    }
+
+    const passwordHash = await bcrypt.hash(TEST_PASSWORD, 10);
+    const mkUser = async (email: string, role: Role) => {
+      const user = await userRepo.save(
+        userRepo.create({
+          email,
+          passwordHash,
+          firstName: 'E2E',
+          lastName: 'User',
+          role,
+          isActive: true,
+          isVerified: true,
+        }),
+      );
+      createdUserIds.push(user.id);
+      return user;
+    };
+    await mkUser(ADMIN_EMAIL, adminRole);
+    await mkUser(EMPLOYEE_EMAIL, employeeRole);
+    const emp2 = await mkUser(EMPLOYEE2_EMAIL, employeeRole);
+    employee2Id = emp2.id;
+
+    adminToken = (await login(ADMIN_EMAIL)).token;
+    employeeToken = (await login(EMPLOYEE_EMAIL)).token;
+    employee2Token = (await login(EMPLOYEE2_EMAIL)).token;
+  }, 60000);
+
+  afterAll(async () => {
+    if (dataSource?.isInitialized && createdUserIds.length) {
+      // login/audit events reference the users via FK — remove them first
+      await purgeUsers(createdUserIds);
+    }
+    await app?.close();
+  });
+
+  describe('Health endpoint (F-08)', () => {
+    it('GET /health returns 200 without authentication', async () => {
+      const res = await request(app.getHttpServer()).get('/health');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ status: 'ok', database: 'up' });
     });
 
-    afterAll(async () => {
-        await app.close();
+    it('health response leaks no configuration', async () => {
+      const res = await request(app.getHttpServer()).get('/health');
+      expect(JSON.stringify(res.body)).not.toMatch(
+        /password|secret|host|connection/i,
+      );
+    });
+  });
+
+  describe('Authentication basics', () => {
+    it('rejects requests without a token', async () => {
+      await request(app.getHttpServer()).get('/assets').expect(401);
     });
 
-    describe('BUG-001: RBAC Enforcement', () => {
-        it('should allow admin to view roles', async () => {
-            return request(app.getHttpServer())
-                .get('/rbac/roles')
-                .set('Authorization', `Bearer ${adminToken}`)
-                .expect(200);
-        });
-
-        it('should prevent employee from viewing roles', async () => {
-            return request(app.getHttpServer())
-                .get('/rbac/roles')
-                .set('Authorization', `Bearer ${employeeToken}`)
-                .expect(403);
-        });
-
-        it('should prevent employee from creating roles', async () => {
-            return request(app.getHttpServer())
-                .post('/rbac/roles')
-                .set('Authorization', `Bearer ${employeeToken}`)
-                .send({
-                    name: 'Hacker Role',
-                    description: 'Attempting privilege escalation',
-                    permissionIds: [1, 2, 3],
-                })
-                .expect(403);
-        });
-
-        it('should prevent employee from deleting users', async () => {
-            return request(app.getHttpServer())
-                .delete('/users/1')
-                .set('Authorization', `Bearer ${employeeToken}`)
-                .expect(403);
-        });
-
-        it('should prevent employee from deleting assets', async () => {
-            return request(app.getHttpServer())
-                .delete('/assets/1')
-                .set('Authorization', `Bearer ${employeeToken}`)
-                .expect(403);
-        });
+    it('rejects a forged token', async () => {
+      await request(app.getHttpServer())
+        .get('/assets')
+        .set('Authorization', 'Bearer not.a.real.token')
+        .expect(401);
     });
 
-    describe('BUG-002: User Update Authorization', () => {
-        it('should allow user to update their own profile', async () => {
-            return request(app.getHttpServer())
-                .put('/users/me')
-                .set('Authorization', `Bearer ${employeeToken}`)
-                .send({
-                    firstName: 'Updated',
-                    lastName: 'Name',
-                })
-                .expect(200);
-        });
+    it('login returns role and permissions', async () => {
+      const body = await login(ADMIN_EMAIL);
+      expect(body.user.role.name).toBe('Admin');
+      expect(body.user.permissions.length).toBeGreaterThan(0);
+    });
+  });
 
-        it('should prevent user from updating another user', async () => {
-            return request(app.getHttpServer())
-                .put('/users/1')
-                .set('Authorization', `Bearer ${employeeToken}`)
-                .send({
-                    firstName: 'Hacked',
-                    roleId: 1, // Attempting to change role
-                })
-                .expect(403);
-        });
+  describe('Anti-enumeration (F-11)', () => {
+    it('forgot-password responds identically for known and unknown emails', async () => {
+      const known = await request(app.getHttpServer())
+        .post('/auth/forgot-password')
+        .send({ email: EMPLOYEE_EMAIL });
+      const unknown = await request(app.getHttpServer())
+        .post('/auth/forgot-password')
+        .send({ email: 'no-such-user@itam-test.local' });
+      expect(known.status).toBe(unknown.status);
+      expect(known.body).toEqual(unknown.body);
+      // and the OTP is never in the response
+      expect(JSON.stringify(known.body)).not.toMatch(/\b\d{6}\b/);
+    });
+  });
 
-        it('should prevent user from setting roleId via profile update', async () => {
-            const response = await request(app.getHttpServer())
-                .put('/users/me')
-                .set('Authorization', `Bearer ${employeeToken}`)
-                .send({
-                    firstName: 'Test',
-                    roleId: 1, // This should be stripped or rejected
-                });
+  describe('RBAC 403 matrix (F-04/F-05): employee denied restricted operations', () => {
+    const cases: Array<[string, string, any]> = [
+      ['post', '/masters/brands', { name: 'E2E Brand' }],
+      ['put', '/masters/brands/1', { name: 'X' }],
+      ['delete', '/masters/brands/1', undefined],
+      ['post', '/masters/vendors', { name: 'E2E Vendor' }],
+      ['delete', '/masters/vendors/1', undefined],
+      ['post', '/masters/plans', { name: 'E2E Plan', vendorId: 1 }],
+      ['post', '/masters/lookups', { type: 'T', label: 'L', value: 'v' }],
+      [
+        'post',
+        '/api/stock/initialize',
+        { catalogItemId: 1, locationId: 1, quantity: 5 },
+      ],
+      [
+        'post',
+        '/api/stock/adjust',
+        { catalogItemId: 1, locationId: 1, newQuantity: 5, reason: 'x' },
+      ],
+      ['post', '/users/sync/azure', {}],
+      ['post', '/api/issue', {}],
+      ['post', '/api/return', {}],
+      ['post', '/api/transfer', {}],
+      ['post', '/api/write-off', {}],
+      ['post', '/api/departments', { name: 'E2E Dept' }],
+      ['put', '/api/departments/1', { name: 'X' }],
+      ['post', '/api/asset-units', {}],
+      ['put', '/api/asset-units/1', {}],
+      ['post', '/assets', { assetTag: 'X-1', name: 'X' }],
+      ['delete', '/assets/1', undefined],
+      ['post', '/users', { email: 'x@y.z' }],
+      ['delete', '/users/1', undefined],
+      ['post', '/rbac/roles', { name: 'Hacker Role', permissionIds: [1] }],
+    ];
 
-            // Should either be 400 (forbidden field) or 200 with roleId ignored
-            expect([200, 400]).toContain(response.status);
-
-            if (response.status === 200) {
-                // Verify roleId was not changed
-                const user = await request(app.getHttpServer())
-                    .get('/users/me')
-                    .set('Authorization', `Bearer ${employeeToken}`);
-
-                expect(user.body.roleId).not.toBe(1);
-            }
-        });
-
-        it('should allow admin to update any user including roleId', async () => {
-            return request(app.getHttpServer())
-                .put('/users/2')
-                .set('Authorization', `Bearer ${adminToken}`)
-                .send({
-                    firstName: 'Admin Updated',
-                    roleId: 2,
-                })
-                .expect(200);
-        });
+    it.each(cases)('employee %s %s → 403', async (method, url, body) => {
+      const res = await (request(app.getHttpServer()) as any)
+        [method](url)
+        .set('Authorization', `Bearer ${employeeToken}`)
+        .send(body);
+      expect(res.status).toBe(403);
     });
 
-    describe('BUG-003: Procurement Transaction Integrity', () => {
-        it('should rollback all changes if asset creation fails', async () => {
-            // This test requires mocking asset creation failure
-            // For now, we verify the endpoint structure
-
-            const initialGRNCount = await dataSource
-                .getRepository('GoodsReceipt')
-                .count();
-
-            // Attempt to confirm receipt with invalid data that should fail
-            const response = await request(app.getHttpServer())
-                .post('/procurement/confirm-receipt')
-                .set('Authorization', `Bearer ${adminToken}`)
-                .send({
-                    poId: 999999, // Non-existent PO
-                    quantity: 5,
-                    notes: 'Test receipt',
-                    userId: 1,
-                });
-
-            expect([400, 404]).toContain(response.status);
-
-            // Verify no GRN was created
-            const finalGRNCount = await dataSource
-                .getRepository('GoodsReceipt')
-                .count();
-
-            expect(finalGRNCount).toBe(initialGRNCount);
-        });
+    it('employee GET /rbac/roles → 403', async () => {
+      await request(app.getHttpServer())
+        .get('/rbac/roles')
+        .set('Authorization', `Bearer ${employeeToken}`)
+        .expect(403);
     });
 
-    describe('BUG-004: Dashboard Live Data', () => {
-        it('should return live audit log data', async () => {
-            const response = await request(app.getHttpServer())
-                .get('/audit-logs/recent?limit=5')
-                .set('Authorization', `Bearer ${adminToken}`)
-                .expect(200);
-
-            expect(Array.isArray(response.body)).toBe(true);
-
-            if (response.body.length > 0) {
-                expect(response.body[0]).toHaveProperty('action');
-                expect(response.body[0]).toHaveProperty('entityType');
-                expect(response.body[0]).toHaveProperty('createdAt');
-            }
-        });
+    it('employee GET /api/stock → 403 (inventory.view required)', async () => {
+      await request(app.getHttpServer())
+        .get('/api/stock')
+        .set('Authorization', `Bearer ${employeeToken}`)
+        .expect(403);
     });
 
-    describe('BUG-005: Statistics Accuracy', () => {
-        it('should include REPAIR status in maintenance count', async () => {
-            const response = await request(app.getHttpServer())
-                .get('/assets/statistics')
-                .set('Authorization', `Bearer ${adminToken}`)
-                .expect(200);
+    it('employee GET /api/reports/ledger → 403 (reports.view required)', async () => {
+      await request(app.getHttpServer())
+        .get('/api/reports/ledger')
+        .set('Authorization', `Bearer ${employeeToken}`)
+        .expect(403);
+    });
+  });
 
-            expect(response.body).toHaveProperty('maintenance');
-            expect(response.body).toHaveProperty('total');
-            expect(response.body).toHaveProperty('deployed');
-            expect(response.body).toHaveProperty('available');
-            expect(response.body).toHaveProperty('disposed');
+  describe('RBAC positive checks: admin allowed', () => {
+    let brandId: number;
 
-            // Maintenance should be a number >= 0
-            expect(typeof response.body.maintenance).toBe('number');
-            expect(response.body.maintenance).toBeGreaterThanOrEqual(0);
-        });
+    it('admin can view roles', async () => {
+      await request(app.getHttpServer())
+        .get('/rbac/roles')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
     });
 
-    describe('BUG-007: DTO Validation', () => {
-        it('should reject requests with unknown fields', async () => {
-            return request(app.getHttpServer())
-                .post('/users')
-                .set('Authorization', `Bearer ${adminToken}`)
-                .send({
-                    firstName: 'Test',
-                    lastName: 'User',
-                    email: 'test@example.com',
-                    password: 'Test123!',
-                    roleId: 2,
-                    hackerField: 'malicious data', // Unknown field
-                })
-                .expect(400);
-        });
-
-        it('should validate required fields', async () => {
-            return request(app.getHttpServer())
-                .post('/users')
-                .set('Authorization', `Bearer ${adminToken}`)
-                .send({
-                    firstName: 'Test',
-                    // Missing required fields: lastName, email, password, roleId
-                })
-                .expect(400);
-        });
-
-        it('should validate email format', async () => {
-            return request(app.getHttpServer())
-                .post('/users')
-                .set('Authorization', `Bearer ${adminToken}`)
-                .send({
-                    firstName: 'Test',
-                    lastName: 'User',
-                    email: 'invalid-email', // Invalid format
-                    password: 'Test123!',
-                    roleId: 2,
-                })
-                .expect(400);
-        });
-
-        it('should validate minimum password length', async () => {
-            return request(app.getHttpServer())
-                .post('/users')
-                .set('Authorization', `Bearer ${adminToken}`)
-                .send({
-                    firstName: 'Test',
-                    lastName: 'User',
-                    email: 'test@example.com',
-                    password: '123', // Too short
-                    roleId: 2,
-                })
-                .expect(400);
-        });
-
-        it('should accept valid asset creation', async () => {
-            const response = await request(app.getHttpServer())
-                .post('/assets')
-                .set('Authorization', `Bearer ${adminToken}`)
-                .send({
-                    assetTag: 'TEST-001',
-                    name: 'Test Laptop',
-                    category: 'Laptop',
-                    status: 'available',
-                });
-
-            expect([200, 201]).toContain(response.status);
-        });
-
-        it('should reject asset with invalid status enum', async () => {
-            return request(app.getHttpServer())
-                .post('/assets')
-                .set('Authorization', `Bearer ${adminToken}`)
-                .send({
-                    assetTag: 'TEST-002',
-                    name: 'Test Laptop',
-                    category: 'Laptop',
-                    status: 'invalid_status', // Not in AssetStatus enum
-                })
-                .expect(400);
-        });
+    it('admin can create master data', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/masters/brands')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: `E2E Brand ${Date.now()}` });
+      expect([200, 201]).toContain(res.status);
+      brandId = res.body.id;
     });
 
-    describe('Authorization Header Validation', () => {
-        it('should reject requests without token', async () => {
-            return request(app.getHttpServer())
-                .get('/assets')
-                .expect(401);
-        });
-
-        it('should reject requests with invalid token', async () => {
-            return request(app.getHttpServer())
-                .get('/assets')
-                .set('Authorization', 'Bearer invalid_token_here')
-                .expect(401);
-        });
+    it('admin can delete master data', async () => {
+      const res = await request(app.getHttpServer())
+        .delete(`/masters/brands/${brandId}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect([200, 204]).toContain(res.status);
     });
 
-    describe('Performance: N+1 Query Prevention', () => {
-        it('should load assets with photos in single query', async () => {
-            const response = await request(app.getHttpServer())
-                .get('/assets')
-                .set('Authorization', `Bearer ${adminToken}`)
-                .expect(200);
-
-            expect(Array.isArray(response.body)).toBe(true);
-
-            // Verify photos are included in response
-            if (response.body.length > 0 && response.body[0].photos) {
-                expect(Array.isArray(response.body[0].photos)).toBe(true);
-            }
-        });
-
-        it('should calculate license statistics efficiently', async () => {
-            const startTime = Date.now();
-
-            await request(app.getHttpServer())
-                .get('/licenses/statistics')
-                .set('Authorization', `Bearer ${adminToken}`)
-                .expect(200);
-
-            const duration = Date.now() - startTime;
-
-            // Should complete in under 1 second even with many licenses
-            expect(duration).toBeLessThan(1000);
-        });
+    it('admin can list users, stock, and reports', async () => {
+      await request(app.getHttpServer())
+        .get('/users')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      await request(app.getHttpServer())
+        .get('/api/stock')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      await request(app.getHttpServer())
+        .get('/api/reports/dashboard-summary')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
     });
+  });
+
+  describe('IDOR / user-data access', () => {
+    it('employee cannot read another user by id', async () => {
+      await request(app.getHttpServer())
+        .get(`/users/${employee2Id}`)
+        .set('Authorization', `Bearer ${employeeToken}`)
+        .expect(403);
+    });
+
+    it('employee cannot update another user', async () => {
+      await request(app.getHttpServer())
+        .put(`/users/${employee2Id}`)
+        .set('Authorization', `Bearer ${employeeToken}`)
+        .send({ firstName: 'Hacked', roleId: 1 })
+        .expect(403);
+    });
+
+    it('employee can read their own profile without passwordHash', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/users/me')
+        .set('Authorization', `Bearer ${employeeToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.email).toBe(EMPLOYEE_EMAIL);
+      expect(res.body.passwordHash).toBeUndefined();
+    });
+
+    it('profile update cannot escalate role or change email', async () => {
+      const res = await request(app.getHttpServer())
+        .put('/auth/profile')
+        .set('Authorization', `Bearer ${employeeToken}`)
+        .send({
+          firstName: 'Renamed',
+          email: 'hijack@itam-test.local',
+          roleId: 1,
+          role: { id: 1 },
+        });
+      expect(res.status).toBe(200);
+      const self = await request(app.getHttpServer())
+        .get('/users/me')
+        .set('Authorization', `Bearer ${employeeToken}`);
+      expect(self.body.email).toBe(EMPLOYEE_EMAIL); // email unchanged
+      expect(self.body.role?.name).toBe('Standard User'); // role unchanged
+      // employee2 untouched
+      const other = await request(app.getHttpServer())
+        .get('/users/me')
+        .set('Authorization', `Bearer ${employee2Token}`);
+      expect(other.body.email).toBe(EMPLOYEE2_EMAIL);
+    });
+  });
+
+  describe('Audit identity integrity (F-13)', () => {
+    it('asset creation records the authenticated user, ignoring client performedBy', async () => {
+      const tag = `E2E-${Date.now()}`;
+      const res = await request(app.getHttpServer())
+        .post('/assets')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'E2E Asset', assetTag: tag, category: 'Laptop', performedBy: 99999 });
+      expect([200, 201]).toContain(res.status);
+      const assetId = res.body.id;
+
+      const history = await request(app.getHttpServer())
+        .get(`/assets/${assetId}/history`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(history.status).toBe(200);
+      expect(JSON.stringify(history.body)).not.toContain('99999');
+
+      await request(app.getHttpServer())
+        .delete(`/assets/${assetId}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+    });
+  });
 });

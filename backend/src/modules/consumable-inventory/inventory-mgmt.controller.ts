@@ -58,8 +58,8 @@ export class InventoryManagementController {
 
     @Put('categories/:id')
     @Permissions('inventory-mgmt.manage')
-    async updateCategory(@Param('id', ParseIntPipe) id: number, @Body() dto: CreateInventoryCategoryDto) {
-        return this.service.updateCategory(id, dto);
+    async updateCategory(@Param('id', ParseIntPipe) id: number, @Body() dto: CreateInventoryCategoryDto, @Req() req: any) {
+        return this.service.updateCategory(id, dto, req.user?.id);
     }
 
     @Delete('categories/:id')

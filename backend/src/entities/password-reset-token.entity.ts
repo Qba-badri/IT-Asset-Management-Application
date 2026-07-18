@@ -21,8 +21,13 @@ export class PasswordResetToken {
   @Column({ type: 'varchar', length: 255, unique: true })
   token: string;
 
-  @Column({ type: 'varchar', length: 10, nullable: true })
-  otp: string;
+  // bcrypt hash of the 6-digit OTP — the plaintext OTP is only ever sent by email
+  @Column({ name: 'otp_hash', type: 'varchar', length: 255, nullable: true })
+  otpHash: string;
+
+  // Failed verification attempts; token is invalidated once MAX_OTP_ATTEMPTS is hit
+  @Column({ type: 'int', default: 0 })
+  attempts: number;
 
   @Column({ name: 'expires_at', type: 'timestamp' })
   expiresAt: Date;

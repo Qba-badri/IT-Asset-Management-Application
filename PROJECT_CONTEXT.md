@@ -37,17 +37,21 @@ IT-Asset-Management/
 - **Status**: The project is currently in a "Restart" phase, having been cleaned of legacy log files and redundant session reports.
 
 ## 🏃 Quick Start for AI Agents
-1. **Database**: Ensure PostgreSQL is running. Use `database/init.sql` to setup.
+1. **Database**: Ensure PostgreSQL is running and create an empty database.
 2. **Backend**:
    - `cd backend`
-   - `npm install`
-   - Configure `.env` (DB_HOST, DB_USER, DB_PASSWORD, etc.)
-   - `npm run seed:all` (Seeds permissions, roles, and master data)
+   - `npm install --legacy-peer-deps`
+   - Configure `.env` from `.env.example` (DB_*, JWT_SECRET, etc.)
+   - `npm run migration:run` (creates the schema — `synchronize` is disabled)
+   - `npm run seed` (Seeds permissions, roles, master data, and the admin user;
+     set `SEED_ADMIN_PASSWORD` outside development)
    - `npm run start:dev`
 3. **Frontend**:
    - `cd frontend`
    - `npm install`
    - `npm start` (Runs on http://localhost:3000)
+
+See `docs/UAT_RUNBOOK.md` for UAT deployment, tests, health checks, and rollback.
 
 ## 📝 Recent Changes & Cleanup
 - Removed legacy `.txt` and `.log` files from `backend` and `frontend`.

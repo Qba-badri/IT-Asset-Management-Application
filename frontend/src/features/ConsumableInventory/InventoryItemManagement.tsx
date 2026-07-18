@@ -39,6 +39,8 @@ import { Label } from "../../components/ui/label";
 import { Switch } from "../../components/ui/switch";
 import { inventoryService, InventoryItem, InventoryCategory } from "../../services/consumableInventoryService";
 import { useToast } from "../../context/ToastContext";
+import { FormField } from "../../components/shared/FormField";
+import { useForm } from "../../hooks/useForm";
 
 export default function ConsumableItemManagement() {
     const { showToast } = useToast();
@@ -48,13 +50,26 @@ export default function ConsumableItemManagement() {
     const [isAdding, setIsAdding] = useState(false);
 
     // New Item State
-    const [newItem, setNewItem] = useState({
+    const {
+        values: newItem,
+        errors,
+        handleChange,
+        handleBlur,
+        validateForm,
+        resetForm,
+        setValues: setNewItemValues,
+    } = useForm({
         name: "",
         categoryId: "",
         isRefundable: false,
         minStockLevel: 5,
         unitsPerPack: 1,
         status: "active"
+    }, {
+        name: { label: 'Item name', required: true },
+        categoryId: { label: 'Category', required: true },
+        minStockLevel: { label: 'Minimum stock level', min: 0 },
+        unitsPerPack: { label: 'Units per pack', min: 1 },
     });
 
     useEffect(() => {
@@ -92,18 +107,15 @@ export default function ConsumableItemManagement() {
     };
 
     const handleCreateItem = async () => {
+        if (!validateForm()) return;
         try {
-            if (!newItem.name || !newItem.categoryId) {
-                showToast("Please fill in all required fields", "warning");
-                return;
-            }
             await inventoryService.createItem({
                 ...newItem,
                 categoryId: parseInt(newItem.categoryId)
             });
             showToast("Item created successfully", "success");
             setIsAdding(false);
-            setNewItem({ name: "", categoryId: "", isRefundable: false, minStockLevel: 5, unitsPerPack: 1, status: "active" });
+            resetForm({ name: "", categoryId: "", isRefundable: false, minStockLevel: 5, unitsPerPack: 1, status: "active" });
             loadData();
         } catch (error) {
             showToast("Failed to create item", "error");
@@ -129,56 +141,57 @@ export default function ConsumableItemManagement() {
                                 <DialogTitle>Add New Inventory Item</DialogTitle>
                             </DialogHeader>
                             <div className="grid gap-4 py-4">
-                                <div className="grid gap-2">
-                                    <Label htmlFor="name">Item Name</Label>
+                                <FormField id="name" label="Item Name" required error={errors.name}>
                                     <Input
-                                        id="name"
                                         placeholder="e.g. Wireless Mouse"
                                         value={newItem.name}
-                                        onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
+                                        onChange={(e) => handleChange('name', e.target.value)}
+                                        onBlur={() => handleBlur('name')}
                                     />
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="category">Category</Label>
+                                </FormField>
+                                <FormField id="categoryId" label="Category" required error={errors.categoryId}>
                                     <select
-                                        id="category"
                                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                                         value={newItem.categoryId}
-                                        onChange={(e) => setNewItem({ ...newItem, categoryId: e.target.value })}
+                                        onChange={(e) => handleChange('categoryId', e.target.value)}
+                                        onBlur={() => handleBlur('categoryId')}
                                     >
                                         <option value="">Select Category</option>
-                                        {categories.map(cat => (
-                                            <option key={cat.id} value={cat.id.toString()}>{cat.name}</option>
-                                        ))}
+                                        {/* Inactive categories cannot be assigned to new items. */}
+                                        {categories
+                                            .filter(cat => cat.isActive !== false || cat.id.toString() === newItem.categoryId)
+                                            .map(cat => (
+                                                <option key={cat.id} value={cat.id.toString()}>
+                                                    {cat.isActive === false ? `${cat.name} (Inactive)` : cat.name}
+                                                </option>
+                                            ))}
                                     </select>
-                                </div>
+                                </FormField>
                                 <div className="flex items-center space-x-2 py-2">
                                     <Switch
                                         id="refundable"
                                         checked={newItem.isRefundable}
-                                        onCheckedChange={(checked) => setNewItem({ ...newItem, isRefundable: !!checked })}
+                                        onCheckedChange={(checked) => setNewItemValues(prev => ({ ...prev, isRefundable: !!checked }))}
                                     />
                                     <Label htmlFor="refundable">Refundable (Must be returned?)</Label>
                                 </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="minStock">Minimum Stock Level</Label>
+                                <FormField id="minStock" label="Minimum Stock Level" error={errors.minStockLevel}>
                                     <Input
-                                        id="minStock"
                                         type="number"
                                         value={newItem.minStockLevel}
-                                        onChange={(e) => setNewItem({ ...newItem, minStockLevel: parseInt(e.target.value) })}
+                                        onChange={(e) => handleChange('minStockLevel', parseInt(e.target.value))}
+                                        onBlur={() => handleBlur('minStockLevel')}
                                     />
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="unitsPerPack">Units per Pack</Label>
+                                </FormField>
+                                <FormField id="unitsPerPack" label="Units per Pack" error={errors.unitsPerPack}>
                                     <Input
-                                        id="unitsPerPack"
                                         type="number"
                                         min={1}
                                         value={newItem.unitsPerPack}
-                                        onChange={(e) => setNewItem({ ...newItem, unitsPerPack: parseInt(e.target.value) || 1 })}
+                                        onChange={(e) => handleChange('unitsPerPack', parseInt(e.target.value) || 1)}
+                                        onBlur={() => handleBlur('unitsPerPack')}
                                     />
-                                </div>
+                                </FormField>
                             </div>
                             <DialogFooter>
                                 <Button variant="outline" onClick={() => setIsAdding(false)}>Cancel</Button>

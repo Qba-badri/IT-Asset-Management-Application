@@ -4,6 +4,8 @@ export interface InventoryCategory {
     id: number;
     name: string;
     description: string;
+    /** Inactive categories stay on existing items but leave new-selection lists. */
+    isActive: boolean;
     items?: InventoryItem[];
 }
 

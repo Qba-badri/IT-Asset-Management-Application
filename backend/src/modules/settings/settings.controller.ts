@@ -10,17 +10,20 @@ export class SettingsController {
   constructor(private readonly settingsService: SettingsService) {}
 
   @Get()
+  @Permissions('settings.view')
   async getAllSettings() {
     return this.settingsService.getAllSettings();
   }
 
   @Get(':key')
+  @Permissions('settings.view')
   async getSetting(@Param('key') key: string) {
     const value = await this.settingsService.getSetting(key);
     return { key, value };
   }
 
   @Put(':key')
+  @Permissions('settings.manage')
   async updateSetting(@Param('key') key: string, @Body('value') value: string) {
     return this.settingsService.updateSetting(key, value);
   }

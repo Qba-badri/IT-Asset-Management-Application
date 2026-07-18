@@ -1,10 +1,12 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Brand } from '../../entities/brand.entity';
 import { Vendor } from '../../entities/vendor.entity';
 import { Lookup } from '../../entities/lookup.entity';
 import { LicensePlan } from '../../entities/license-plan.entity';
+import { AuditEventsService } from '../audit-events/audit-events.service';
+import { AuditAction } from '../../entities/audit-event.entity';
 
 @Injectable()
 export class MasterService implements OnModuleInit {
@@ -17,7 +19,55 @@ export class MasterService implements OnModuleInit {
     private readonly lookupRepo: Repository<Lookup>,
     @InjectRepository(LicensePlan)
     private readonly planRepo: Repository<LicensePlan>,
+    private readonly dataSource: DataSource,
+    private readonly auditEvents: AuditEventsService,
   ) { }
+
+  /**
+   * Applies an update to a master record. When the update flips isActive,
+   * the write and its audit record commit in one transaction — a status
+   * change must never land without its audit trail.
+   */
+  private async updateMasterRecord<T extends { id: number; isActive?: boolean }>(
+    entityClass: new () => T,
+    id: number,
+    data: Partial<T>,
+    entityType: string,
+    actorId?: number,
+  ): Promise<T | null> {
+    const repo = this.dataSource.getRepository(entityClass);
+    const before = await repo.findOneBy({ id } as any);
+    if (!before) throw new NotFoundException(`${entityType} not found`);
+
+    const statusChanging =
+      (data as any).isActive !== undefined &&
+      (data as any).isActive !== before.isActive;
+
+    if (!statusChanging) {
+      await repo.update(id, data as any);
+      return repo.findOneBy({ id } as any);
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(entityClass).update(id, data as any);
+      await this.auditEvents.logEvent(
+        {
+          action: AuditAction.UPDATE,
+          entityType,
+          entityId: id,
+          actorId,
+          metadata: {
+            field: 'isActive',
+            from: before.isActive,
+            to: (data as any).isActive,
+            name: (before as any).name ?? (before as any).label,
+          },
+        },
+        manager,
+      );
+      return manager.getRepository(entityClass).findOneBy({ id } as any);
+    });
+  }
 
   async onModuleInit() {
     await this.seedLookups();
@@ -244,9 +294,8 @@ export class MasterService implements OnModuleInit {
     return this.brandRepo.save(brand);
   }
 
-  async updateBrand(id: number, data: any) {
-    await this.brandRepo.update(id, data);
-    return this.brandRepo.findOneBy({ id });
+  async updateBrand(id: number, data: any, actorId?: number) {
+    return this.updateMasterRecord(Brand, id, data, 'Brand', actorId);
   }
 
   async deleteBrand(id: number) {
@@ -263,9 +312,8 @@ export class MasterService implements OnModuleInit {
     return this.vendorRepo.save(vendor);
   }
 
-  async updateVendor(id: number, data: any) {
-    await this.vendorRepo.update(id, data);
-    return this.vendorRepo.findOneBy({ id });
+  async updateVendor(id: number, data: any, actorId?: number) {
+    return this.updateMasterRecord(Vendor, id, data, 'Vendor', actorId);
   }
 
   async deleteVendor(id: number) {
@@ -292,9 +340,8 @@ export class MasterService implements OnModuleInit {
     return this.planRepo.save(plan);
   }
 
-  async updatePlan(id: number, data: any) {
-    await this.planRepo.update(id, data);
-    return this.planRepo.findOneBy({ id });
+  async updatePlan(id: number, data: any, actorId?: number) {
+    return this.updateMasterRecord(LicensePlan, id, data, 'LicensePlan', actorId);
   }
 
   async deletePlan(id: number) {
@@ -318,9 +365,8 @@ export class MasterService implements OnModuleInit {
     return this.lookupRepo.save(lookup);
   }
 
-  async updateLookup(id: number, data: any) {
-    await this.lookupRepo.update(id, data);
-    return this.lookupRepo.findOneBy({ id });
+  async updateLookup(id: number, data: any, actorId?: number) {
+    return this.updateMasterRecord(Lookup, id, data, 'Lookup', actorId);
   }
 
   async deleteLookup(id: number) {

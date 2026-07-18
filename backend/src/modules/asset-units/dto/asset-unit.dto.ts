@@ -6,7 +6,9 @@ import {
   IsDateString,
   MaxLength,
   Min,
+  IsNotEmpty,
 } from 'class-validator';
+import { Observe } from '../../../common/validation/observe.decorator';
 import {
   AssetUnitStatus,
   AssetCondition,
@@ -15,6 +17,8 @@ import {
 export class CreateAssetUnitDto {
   @IsString()
   @MaxLength(50)
+  @Observe('Backfill 2026-07: already mandatory, but accepted an empty string')
+  @IsNotEmpty()
   assetTag: string;
 
   @IsNumber()

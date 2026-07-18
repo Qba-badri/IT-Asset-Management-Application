@@ -30,6 +30,7 @@ import {
   HoldingsQueryDto,
   OverdueQueryDto,
 } from './dto/assignment.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class AssignmentsService {
@@ -46,6 +47,7 @@ export class AssignmentsService {
     private readonly auditRepo: Repository<AuditEvent>,
     private readonly stockService: StockService,
     private readonly dataSource: DataSource,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   // ─── ISSUE ──────────────────────────────────────────────────────
@@ -138,6 +140,15 @@ export class AssignmentsService {
       await manager.save(AuditEvent, audit);
 
       return saved;
+    }).then(async (saved) => {
+      await this.notificationsService.notifyAssignment({
+        assignedUserId: dto.assigneeId,
+        departmentId: dto.departmentId,
+        entityType: 'assignment',
+        entityName: `${catalog.name} (unit #${dto.assetUnitId})`,
+        action: 'assigned',
+      });
+      return saved;
     });
   }
 
@@ -204,6 +215,15 @@ export class AssignmentsService {
       });
       await manager.save(AuditEvent, audit);
 
+      return saved;
+    }).then(async (saved) => {
+      await this.notificationsService.notifyAssignment({
+        assignedUserId: dto.assigneeId,
+        departmentId: dto.departmentId,
+        entityType: 'assignment',
+        entityName: `${catalog.name} x${quantity}`,
+        action: 'assigned',
+      });
       return saved;
     });
   }
@@ -321,6 +341,15 @@ export class AssignmentsService {
       await manager.save(AuditEvent, audit);
 
       return savedReturn;
+    }).then(async (savedReturn) => {
+      await this.notificationsService.notifyAssignment({
+        assignedUserId: assignment.assigneeId,
+        departmentId: assignment.departmentId,
+        entityType: 'assignment',
+        entityName: `${assignment.catalogItem.name} x${returnQty}`,
+        action: 'unassigned',
+      });
+      return savedReturn;
     });
   }
 
@@ -338,6 +367,8 @@ export class AssignmentsService {
         'Only active assignments can be transferred',
       );
     }
+
+    const previousAssigneeId = assignment.assigneeId;
 
     return this.dataSource.transaction(async (manager) => {
       const metadata: Record<string, any> = {
@@ -418,6 +449,26 @@ export class AssignmentsService {
       await manager.save(AuditEvent, audit);
 
       return assignment;
+    }).then(async (result) => {
+      if (dto.toAssigneeId) {
+        if (previousAssigneeId) {
+          await this.notificationsService.notifyAssignment({
+            assignedUserId: previousAssigneeId,
+            departmentId: result.departmentId,
+            entityType: 'assignment',
+            entityName: result.catalogItem.name,
+            action: 'unassigned',
+          });
+        }
+        await this.notificationsService.notifyAssignment({
+          assignedUserId: dto.toAssigneeId,
+          departmentId: result.departmentId,
+          entityType: 'assignment',
+          entityName: result.catalogItem.name,
+          action: 'assigned',
+        });
+      }
+      return result;
     });
   }
 
@@ -495,6 +546,16 @@ export class AssignmentsService {
       await manager.save(AuditEvent, audit);
 
       return assignment;
+    }).then(async (result) => {
+      await this.notificationsService.notifyStatusChange({
+        assignedUserId: result.assigneeId,
+        departmentId: result.departmentId,
+        assetTag: result.assetUnit?.assetTag || `assignment-${result.id}`,
+        assetName: result.catalogItem.name,
+        oldStatus: 'ACTIVE',
+        newStatus: 'WRITTEN_OFF',
+      });
+      return result;
     });
   }
 

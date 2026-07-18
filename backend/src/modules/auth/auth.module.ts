@@ -11,6 +11,7 @@ import { Role } from '../../entities/role.entity';
 import { PassportModule } from '@nestjs/passport';
 import { JwtStrategy } from './jwt.strategy';
 import { AuditEventsModule } from '../audit-events/audit-events.module';
+import { MailModule } from '../mail/mail.module';
 
 import { PermissionsGuard } from './guards/permissions.guard';
 
@@ -21,12 +22,17 @@ import { PermissionsGuard } from './guards/permissions.guard';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET') || 'your-secret-key-change-in-production',
-        signOptions: { expiresIn: '24h' },
+        // Throws at startup if JWT_SECRET is not configured — no fallback secret
+        secret: configService.getOrThrow<string>('JWT_SECRET'),
+        signOptions: {
+          // Default kept in sync with env.validation.ts (JWT_EXPIRATION default).
+          expiresIn: configService.get('JWT_EXPIRATION', '1h') as any,
+        },
       }),
       inject: [ConfigService],
     }),
     AuditEventsModule,
+    MailModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, PermissionsGuard],

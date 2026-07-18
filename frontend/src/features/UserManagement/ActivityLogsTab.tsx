@@ -193,6 +193,7 @@ const ActivityLogsTab: React.FC = () => {
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS);
@@ -217,7 +218,7 @@ const ActivityLogsTab: React.FC = () => {
     try {
       const query: AuditEventQuery = {
         page,
-        limit: PAGE_SIZE,
+        limit: pageSize,
         ...(filters.action && { action: filters.action }),
         ...(filters.entityType && { entityType: filters.entityType }),
         ...(filters.startDate && { startDate: filters.startDate }),
@@ -233,7 +234,7 @@ const ActivityLogsTab: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, filters.action, filters.entityType, filters.startDate, filters.endDate, debouncedSearch]);
+  }, [page, pageSize, filters.action, filters.entityType, filters.startDate, filters.endDate, debouncedSearch]);
 
   useEffect(() => {
     fetchEvents();
@@ -271,7 +272,7 @@ const ActivityLogsTab: React.FC = () => {
     }
   };
 
-  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const totalPages = Math.ceil(total / pageSize);
 
   return (
     <div className="flex flex-col gap-4">
@@ -401,7 +402,7 @@ const ActivityLogsTab: React.FC = () => {
           {total === 0 ? 'No activity records found' : (
             <>
               Showing <span className="font-medium text-foreground">
-                {Math.min((page - 1) * PAGE_SIZE + 1, total)}–{Math.min(page * PAGE_SIZE, total)}
+                {Math.min((page - 1) * pageSize + 1, total)}–{Math.min(page * pageSize, total)}
               </span> of <span className="font-medium text-foreground">{total.toLocaleString()}</span> events
             </>
           )}
@@ -442,13 +443,14 @@ const ActivityLogsTab: React.FC = () => {
       </Card>
 
       {/* Pagination */}
-      {!loading && total > PAGE_SIZE && (
+      {!loading && total > 0 && (
         <Pagination
           currentPage={page}
           totalPages={totalPages}
           onPageChange={setPage}
           totalItems={total}
-          pageSize={PAGE_SIZE}
+          pageSize={pageSize}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
         />
       )}
     </div>

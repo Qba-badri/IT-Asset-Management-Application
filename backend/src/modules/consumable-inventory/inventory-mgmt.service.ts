@@ -10,6 +10,8 @@ import { InventoryTransaction, InventoryTransactionType } from '../../entities/i
 import { User } from '../../entities/user.entity';
 import { AuditEvent, AuditAction } from '../../entities/audit-event.entity';
 import { CreateInventoryCategoryDto, CreateInventoryItemDto, CreateInventoryPurchaseDto, CreateInventoryAssignmentDto, CreateInventoryReturnDto, AdjustStockDto, DeleteAssignmentDto } from './dto/inventory-mgmt.dto';
+import { assertActiveReference } from '../../common/validation/active-reference';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class InventoryManagementService {
@@ -29,7 +31,25 @@ export class InventoryManagementService {
         @InjectRepository(AuditEvent)
         private auditEventRepo: Repository<AuditEvent>,
         private dataSource: DataSource,
+        private readonly notificationsService: NotificationsService,
     ) { }
+
+    // --- Low-stock alerting ---
+    // Fired only on the threshold-crossing edge (previousStock at/above the
+    // minimum, newStock below it) — never on every subsequent adjustment —
+    // so a low-stock item doesn't spam an email per transaction. Called
+    // after the DB transaction that changed stock has committed.
+    private async maybeAlertLowStock(item: InventoryItem, previousStock: number): Promise<void> {
+        const threshold = item.minStockLevel;
+        if (previousStock >= threshold && item.availableStock < threshold) {
+            await this.notificationsService.notifyLowStock({
+                id: item.id,
+                name: item.name,
+                availableStock: item.availableStock,
+                minStockLevel: item.minStockLevel,
+            });
+        }
+    }
 
     // --- Categories ---
     async createCategory(dto: CreateInventoryCategoryDto) {
@@ -52,10 +72,30 @@ export class InventoryManagementService {
         return category;
     }
 
-    async updateCategory(id: number, dto: CreateInventoryCategoryDto) {
+    async updateCategory(id: number, dto: CreateInventoryCategoryDto, actorId?: number) {
         const category = await this.findOneCategory(id);
+        const statusChanging =
+            dto.isActive !== undefined && dto.isActive !== category.isActive;
+        const from = category.isActive;
         Object.assign(category, dto);
-        return this.categoryRepo.save(category);
+
+        if (!statusChanging) {
+            return this.categoryRepo.save(category);
+        }
+
+        // A status change and its audit record commit atomically.
+        return this.dataSource.transaction(async (manager) => {
+            const saved = await manager.save(category);
+            const audit = manager.getRepository(AuditEvent).create({
+                action: AuditAction.UPDATE,
+                entityType: 'InventoryCategory',
+                entityId: id,
+                actorId,
+                metadata: { field: 'isActive', from, to: dto.isActive, name: category.name },
+            });
+            await manager.getRepository(AuditEvent).save(audit);
+            return saved;
+        });
     }
 
     async deleteCategory(id: number) {
@@ -80,6 +120,7 @@ export class InventoryManagementService {
 
     // --- Items ---
     async createItem(dto: CreateInventoryItemDto) {
+        await assertActiveReference(this.categoryRepo, dto.categoryId, 'Inventory category');
         const item = this.itemRepo.create(dto);
         if (dto.packQuantity != null) {
             const unitsPerPack = dto.unitsPerPack ?? 1;
@@ -107,6 +148,9 @@ export class InventoryManagementService {
         if (!item) {
             throw new NotFoundException('Inventory item not found');
         }
+        // Retaining the current category is allowed even if it has since been
+        // deactivated; switching to an inactive one is not.
+        await assertActiveReference(this.categoryRepo, dto.categoryId, 'Inventory category', item.categoryId);
 
         // Note: totalStock/availableStock are normally driven by purchases, assignments and
         // returns. Editing packQuantity on the item form is the one direct override allowed —
@@ -144,11 +188,12 @@ export class InventoryManagementService {
             throw new BadRequestException('Adjustment quantity must be greater than zero');
         }
 
+        let previousStock = 0;
         return this.dataSource.transaction(async (manager) => {
             const item = await manager.findOne(InventoryItem, { where: { id: dto.itemId } });
             if (!item) throw new NotFoundException('Item not found');
 
-            const previousStock = item.availableStock;
+            previousStock = item.availableStock;
 
             if (dto.type === InventoryTransactionType.OUT) {
                 if (item.availableStock < dto.quantity) {
@@ -187,6 +232,12 @@ export class InventoryManagementService {
             });
             await manager.save(AuditEvent, auditEvent);
 
+            return savedTransaction;
+        }).then(async (savedTransaction) => {
+            const freshItem = await this.itemRepo.findOne({ where: { id: dto.itemId } });
+            if (freshItem) {
+                await this.maybeAlertLowStock(freshItem, previousStock);
+            }
             return savedTransaction;
         });
     }
@@ -234,9 +285,11 @@ export class InventoryManagementService {
 
     // --- Assignment Module ---
     async createAssignment(dto: CreateInventoryAssignmentDto, performerId: number) {
+        let previousStock = 0;
         return this.dataSource.transaction(async (manager) => {
             const item = await manager.findOne(InventoryItem, { where: { id: dto.itemId } });
             if (!item) throw new NotFoundException('Item not found');
+            previousStock = item.availableStock;
 
             const targetType = dto.targetType || InventoryAssignmentTargetType.PERSON;
             let assigneeLabel: string;
@@ -281,6 +334,17 @@ export class InventoryManagementService {
             });
             await manager.save(InventoryTransaction, transaction);
 
+            return { savedAssignment, item, targetType };
+        }).then(async ({ savedAssignment, item, targetType }) => {
+            await this.maybeAlertLowStock(item, previousStock);
+            if (targetType === InventoryAssignmentTargetType.PERSON && dto.userId) {
+                await this.notificationsService.notifyAssignment({
+                    assignedUserId: dto.userId,
+                    entityType: 'inventory_item',
+                    entityName: `${item.name} x${dto.quantity}`,
+                    action: 'assigned',
+                });
+            }
             return savedAssignment;
         });
     }
@@ -331,6 +395,17 @@ export class InventoryManagementService {
             });
             await manager.save(InventoryTransaction, transaction);
 
+            return { savedReturn, item, assignment };
+        }).then(async ({ savedReturn, item, assignment }) => {
+            await this.maybeAlertLowStock(item, item.availableStock - assignment.quantity);
+            if (assignment.userId) {
+                await this.notificationsService.notifyAssignment({
+                    assignedUserId: assignment.userId,
+                    entityType: 'inventory_item',
+                    entityName: `${item.name} x${assignment.quantity}`,
+                    action: 'unassigned',
+                });
+            }
             return savedReturn;
         });
     }
@@ -401,7 +476,18 @@ export class InventoryManagementService {
             });
             await manager.save(AuditEvent, auditEvent);
 
-            return { message: 'Assignment corrected and stock restored successfully' };
+            return { result: { message: 'Assignment corrected and stock restored successfully' }, item, assignment };
+        }).then(async ({ result, item, assignment }) => {
+            await this.maybeAlertLowStock(item, item.availableStock - assignment.quantity);
+            if (assignment.userId) {
+                await this.notificationsService.notifyAssignment({
+                    assignedUserId: assignment.userId,
+                    entityType: 'inventory_item',
+                    entityName: `${item.name} x${assignment.quantity}`,
+                    action: 'unassigned',
+                });
+            }
+            return result;
         });
     }
 

@@ -113,7 +113,7 @@ const chartFont = { fontFamily: 'Inter, system-ui, sans-serif' };
 /* ══════════════════════ MAIN COMPONENT ══════════════════════ */
 const AnalyticsDashboard: React.FC = () => {
     const { showToast } = useToast();
-    const { formatDisplayAmount } = useCurrency();
+    const { formatDisplayAmount, currencyCode } = useCurrency();
 
     const [activeTab, setActiveTab] = useState<TabKey>('overview');
     const [loading, setLoading] = useState(true);
@@ -146,6 +146,8 @@ const AnalyticsDashboard: React.FC = () => {
     const loadAll = useCallback(async (f: DashboardFilters) => {
         setRefreshing(true);
         try {
+            // Monetary aggregates are converted server-side into the user's display currency
+            f = { ...(f || {}), displayCurrency: currencyCode };
             const [g, a, lic, inv, u, al, act, sm, lu] = await Promise.all([
                 analyticsService.getGlobalSummary(f || {}),
                 analyticsService.getAssetStats(f || {}),
@@ -174,7 +176,7 @@ const AnalyticsDashboard: React.FC = () => {
             setLoading(false);
             setRefreshing(false);
         }
-    }, [showToast]);
+    }, [showToast, currencyCode]);
 
     useEffect(() => { loadAll({}); }, [loadAll]);
 

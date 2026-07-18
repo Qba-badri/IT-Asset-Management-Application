@@ -32,6 +32,10 @@ import {
 import { AnalyticsService } from './analytics.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
+// Any authenticated user may load the dashboard; the AnalyticsService scopes
+// every KPI to the user's data-scope tier (global / department / self) based
+// on their dashboard.view.* permissions, so a Standard User sees only their
+// own assigned assets and nothing organization-wide.
 @Controller('api/dashboard')
 @UseGuards(JwtAuthGuard)
 export class DashboardController {
@@ -63,9 +67,9 @@ export class DashboardController {
 
   // ── KPI 4: Serialized asset unit lifecycle breakdown ──
   @Get('serialized-units-kpi')
-  async getSerializedUnitKpis(@Query() filters: any) {
+  async getSerializedUnitKpis(@Query() filters: any, @Req() req: any) {
     try {
-      return await this.analyticsService.getSerializedUnitKpis(filters);
+      return await this.analyticsService.getSerializedUnitKpis(filters, req.user);
     } catch (error) {
       this.logger.error(`Failed to get serialized unit KPIs: ${error.message}`, error.stack);
       throw new InternalServerErrorException(error.message);
@@ -74,9 +78,9 @@ export class DashboardController {
 
   // ── KPI 6, 7, 8: Inventory below-min, spend, turnover ──
   @Get('inventory-kpi')
-  async getInventoryKpis(@Query() filters: any) {
+  async getInventoryKpis(@Query() filters: any, @Req() req: any) {
     try {
-      return await this.analyticsService.getInventoryKpis(filters);
+      return await this.analyticsService.getInventoryKpis(filters, req.user);
     } catch (error) {
       this.logger.error(`Failed to get inventory KPIs: ${error.message}`, error.stack);
       throw new InternalServerErrorException(error.message);
@@ -129,9 +133,9 @@ export class DashboardController {
 
   // ── KPI 20: System activity last 24 hours ──
   @Get('audit-activity-kpi')
-  async getAuditActivityKpis() {
+  async getAuditActivityKpis(@Req() req: any) {
     try {
-      return await this.analyticsService.getAuditActivityKpis();
+      return await this.analyticsService.getAuditActivityKpis(req.user);
     } catch (error) {
       this.logger.error(`Failed to get audit activity KPIs: ${error.message}`, error.stack);
       throw new InternalServerErrorException(error.message);
@@ -151,9 +155,9 @@ export class DashboardController {
 
   // ── Stock movement bar chart ──
   @Get('stock-movement')
-  async getStockMovement(@Query() filters: any) {
+  async getStockMovement(@Query() filters: any, @Req() req: any) {
     try {
-      return await this.analyticsService.getStockMovement(filters);
+      return await this.analyticsService.getStockMovement(filters, req.user);
     } catch (error) {
       this.logger.error(`Failed to get stock movement: ${error.message}`, error.stack);
       throw new InternalServerErrorException(error.message);

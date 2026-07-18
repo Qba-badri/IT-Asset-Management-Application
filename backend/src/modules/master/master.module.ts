@@ -6,9 +6,13 @@ import { Lookup } from '../../entities/lookup.entity';
 import { LicensePlan } from '../../entities/license-plan.entity';
 import { MasterController } from './master.controller';
 import { MasterService } from './master.service';
+import { AuditEventsModule } from '../audit-events/audit-events.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Brand, Vendor, Lookup, LicensePlan])],
+  imports: [
+    TypeOrmModule.forFeature([Brand, Vendor, Lookup, LicensePlan]),
+    AuditEventsModule,
+  ],
   controllers: [MasterController],
   providers: [MasterService],
   exports: [MasterService],

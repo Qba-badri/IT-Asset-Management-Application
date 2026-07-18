@@ -10,6 +10,7 @@ import { masterService, Vendor, LicensePlan, Lookup } from '../../services/maste
 import { Loader2, Info } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../../components/ui/tooltip"
 import { cn } from "../../lib/utils"
+import { useCurrency } from '../../context/CurrencyContext';
 
 interface LicenseFormProps {
     initialData?: Partial<License>;
@@ -70,6 +71,7 @@ const LicenseForm: React.FC<LicenseFormProps> = ({ initialData, onSubmit, onCanc
     const [lookups, setLookups] = useState<Record<string, Lookup[]>>({});
     const [loadingMasters, setLoadingMasters] = useState(true);
     const [errors, setErrors] = useState<Record<string, string>>({});
+    const { availableCurrencies, defaultCurrency, symbolFor, convertBetween, formatInCurrency } = useCurrency();
 
     const [formData, setFormData] = useState<Partial<License>>({
         softwareName: '',
@@ -84,7 +86,7 @@ const LicenseForm: React.FC<LicenseFormProps> = ({ initialData, onSubmit, onCanc
         usedSeats: 0,
         cloudMode: true,
         unitPrice: 0,
-        currency: 'USD',
+        currency: defaultCurrency,
         billingFrequency: 'monthly' as any,
         commitmentTerm: '',
         purchaseDate: '',
@@ -131,6 +133,24 @@ const LicenseForm: React.FC<LicenseFormProps> = ({ initialData, onSubmit, onCanc
             setFormData(prev => ({ ...prev, ...initialData }));
         }
     }, [initialData]);
+
+    // New licenses default to the org-wide default currency once it has loaded
+    useEffect(() => {
+        if (!initialData?.currency) {
+            setFormData(prev => ({ ...prev, currency: defaultCurrency }));
+        }
+    }, [defaultCurrency, initialData]);
+
+    // Original amount converted into the org default currency, shown when they differ
+    const renderDefaultCurrencyHint = (amount?: number) => {
+        const code = formData.currency as string;
+        if (!amount || !code || code === defaultCurrency) return null;
+        return (
+            <p className="text-xs text-muted-foreground mt-1">
+                ≈ {formatInCurrency(convertBetween(amount, code, defaultCurrency), defaultCurrency)} {defaultCurrency}
+            </p>
+        );
+    };
 
     const handleChange = (field: keyof License, value: any) => {
         setFormData(prev => {
@@ -232,13 +252,16 @@ const LicenseForm: React.FC<LicenseFormProps> = ({ initialData, onSubmit, onCanc
         return <div className="p-8 flex justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div>;
     }
 
-    // Group Plans by Product Family
-    const groupedPlans = plans.reduce((acc, plan) => {
-        const family = plan.productFamily || 'Other';
-        if (!acc[family]) acc[family] = [];
-        acc[family].push(plan);
-        return acc;
-    }, {} as Record<string, LicensePlan[]>);
+    // Group Plans by Product Family. Inactive plans are excluded from new
+    // selection; a plan already on this license stays listed.
+    const groupedPlans = plans
+        .filter(plan => plan.isActive !== false || plan.id === formData.licensePlanId)
+        .reduce((acc, plan) => {
+            const family = plan.productFamily || 'Other';
+            if (!acc[family]) acc[family] = [];
+            acc[family].push(plan);
+            return acc;
+        }, {} as Record<string, LicensePlan[]>);
 
     return (
         <form onSubmit={handleSubmit} className="space-y-8 pt-4">
@@ -258,7 +281,7 @@ const LicenseForm: React.FC<LicenseFormProps> = ({ initialData, onSubmit, onCanc
                             {Object.entries(groupedPlans).map(([family, familyPlans]) => (
                                 <optgroup key={family} label={family}>
                                     {familyPlans.map(p => (
-                                        <option key={p.id} value={p.id}>{p.name}</option>
+                                        <option key={p.id} value={p.id}>{p.isActive === false ? `${p.name} (Inactive)` : p.name}</option>
                                     ))}
                                 </optgroup>
                             ))}
@@ -283,9 +306,11 @@ const LicenseForm: React.FC<LicenseFormProps> = ({ initialData, onSubmit, onCanc
                             onChange={(e) => handleChange('vendorId', e.target.value)}
                         >
                             <option value="">Select vendor...</option>
-                            {vendors.map((vendor) => (
+                            {vendors
+                                .filter((vendor) => vendor.isActive !== false || vendor.id === formData.vendorId)
+                                .map((vendor) => (
                                 <option key={vendor.id} value={vendor.id}>
-                                    {vendor.name}
+                                    {vendor.isActive === false ? `${vendor.name} (Inactive)` : vendor.name}
                                 </option>
                             ))}
                         </select>
@@ -405,6 +430,7 @@ const LicenseForm: React.FC<LicenseFormProps> = ({ initialData, onSubmit, onCanc
                             value={formData.unitPrice ?? ''}
                             onChange={e => handleChange('unitPrice', e.target.value === '' ? undefined : parseFloat(e.target.value))}
                         />
+                        {renderDefaultCurrencyHint(formData.unitPrice)}
                     </FormField>
 
                     <FormField label="Currency" field="currency">
@@ -414,8 +440,8 @@ const LicenseForm: React.FC<LicenseFormProps> = ({ initialData, onSubmit, onCanc
                             onChange={e => handleChange('currency', e.target.value)}
                         >
                             <option value="">Select...</option>
-                            {lookups['CURRENCY']?.map(opt => (
-                                <option key={opt.id} value={opt.value}>{opt.label}</option>
+                            {availableCurrencies.map(c => (
+                                <option key={c.code} value={c.code}>{c.code}</option>
                             ))}
                         </select>
                     </FormField>
@@ -451,7 +477,7 @@ const LicenseForm: React.FC<LicenseFormProps> = ({ initialData, onSubmit, onCanc
                     <FormField label="Total Cost" field="totalCost">
                         <div className="relative">
                             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">
-                                {formData.currency === 'INR' ? '₹' : (formData.currency || '$')}
+                                {symbolFor((formData.currency as string) || defaultCurrency)}
                             </span>
                             <Input
                                 type="number"
@@ -461,6 +487,7 @@ const LicenseForm: React.FC<LicenseFormProps> = ({ initialData, onSubmit, onCanc
                                 onChange={e => handleChange('totalCost', e.target.value === '' ? undefined : parseFloat(e.target.value))}
                             />
                         </div>
+                        {renderDefaultCurrencyHint(formData.totalCost)}
                     </FormField>
                 </div>
             </div>

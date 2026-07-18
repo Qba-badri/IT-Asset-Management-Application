@@ -4,31 +4,44 @@ import { authService } from '../../services/authService';
 import { Eye, EyeOff, KeyRound, Loader2, ArrowLeft, Mail, ShieldCheck } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Label } from '../ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../ui/card';
+import { FormField } from '../shared/FormField';
+import { useForm } from '../../hooks/useForm';
 
 const ForgotPassword: React.FC = () => {
   const navigate = useNavigate();
   const [step, setStep] = useState<'email' | 'otp' | 'reset'>('email');
-  const [email, setEmail] = useState('');
-  const [otp, setOtp] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  const isValidEmail = (em: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em);
+  const emailForm = useForm({ email: '' }, {
+    email: { label: 'Email address', required: true, email: true },
+  });
+
+  const otpForm = useForm({ otp: '' }, {
+    otp: { label: 'One-time password', required: true, minLength: 6 },
+  });
+
+  const resetForm = useForm({ newPassword: '', confirmPassword: '' }, {
+    newPassword: { label: 'New password', required: true, minLength: 8 },
+    confirmPassword: {
+      label: 'Confirm password',
+      required: true,
+      custom: (value, allValues) =>
+        value !== allValues.newPassword ? 'Passwords do not match.' : null,
+    },
+  });
 
   const handleEmailSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setError(''); setSuccess(''); setLoading(true);
+    setError(''); setSuccess('');
+    if (!emailForm.validateForm()) return;
+    setLoading(true);
     try {
-      if (!email) { setError('Please enter your email address'); setLoading(false); return; }
-      if (!isValidEmail(email)) { setError('Please enter a valid email address'); setLoading(false); return; }
-      await authService.requestPasswordReset(email);
+      await authService.requestPasswordReset(emailForm.values.email);
       setSuccess('OTP sent to your email address');
       setStep('otp');
     } catch (err: any) { setError(err.message || 'Failed to send reset code.'); }
@@ -37,10 +50,11 @@ const ForgotPassword: React.FC = () => {
 
   const handleOtpSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setError(''); setSuccess(''); setLoading(true);
+    setError(''); setSuccess('');
+    if (!otpForm.validateForm()) return;
+    setLoading(true);
     try {
-      if (!otp) { setError('Please enter the OTP'); setLoading(false); return; }
-      await authService.verifyOtp(email, otp);
+      await authService.verifyOtp(emailForm.values.email, otpForm.values.otp);
       setSuccess('OTP verified successfully');
       setStep('reset');
     } catch (err: any) { setError(err.message || 'Invalid OTP.'); }
@@ -49,12 +63,11 @@ const ForgotPassword: React.FC = () => {
 
   const handleResetSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setError(''); setSuccess(''); setLoading(true);
+    setError(''); setSuccess('');
+    if (!resetForm.validateForm()) return;
+    setLoading(true);
     try {
-      if (!newPassword || !confirmPassword) { setError('Please fill in all fields'); setLoading(false); return; }
-      if (newPassword.length < 8) { setError('Password must be at least 8 characters'); setLoading(false); return; }
-      if (newPassword !== confirmPassword) { setError('Passwords do not match'); setLoading(false); return; }
-      await authService.resetPassword(email, otp, newPassword);
+      await authService.resetPassword(emailForm.values.email, otpForm.values.otp, resetForm.values.newPassword);
       setSuccess('Password reset successfully! Redirecting...');
       setTimeout(() => navigate('/login'), 2000);
     } catch (err: any) { setError(err.message || 'Failed to reset password.'); }
@@ -65,7 +78,7 @@ const ForgotPassword: React.FC = () => {
   const stepTitles = { email: 'Reset Password', otp: 'Verify OTP', reset: 'New Password' };
   const stepDescriptions = {
     email: 'Enter your email to receive a reset code',
-    otp: `Enter the OTP sent to ${email}`,
+    otp: `Enter the OTP sent to ${emailForm.values.email}`,
     reset: 'Choose a new password for your account',
   };
   const StepIcon = stepIcons[step];
@@ -105,12 +118,13 @@ const ForgotPassword: React.FC = () => {
           )}
 
           {step === 'email' && (
-            <form onSubmit={handleEmailSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email Address</Label>
-                <Input type="email" id="email" placeholder="name@company.com" value={email}
-                  onChange={(e) => { setEmail(e.target.value); setError(''); }} disabled={loading} required className="h-11" />
-              </div>
+            <form onSubmit={handleEmailSubmit} noValidate className="space-y-4">
+              <FormField id="email" label="Email Address" required error={emailForm.errors.email}>
+                <Input type="email" placeholder="name@company.com" value={emailForm.values.email}
+                  onChange={(e) => { emailForm.handleChange('email', e.target.value); setError(''); }}
+                  onBlur={() => emailForm.handleBlur('email')}
+                  disabled={loading} className="h-11" />
+              </FormField>
               <Button type="submit" className="w-full h-11" disabled={loading}>
                 {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Sending...</> : 'Send Reset Code'}
               </Button>
@@ -118,13 +132,13 @@ const ForgotPassword: React.FC = () => {
           )}
 
           {step === 'otp' && (
-            <form onSubmit={handleOtpSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="otp">One-Time Password</Label>
-                <Input type="text" id="otp" placeholder="Enter 6-digit OTP" value={otp}
-                  onChange={(e) => { setOtp(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
-                  disabled={loading} maxLength={6} required className="h-11 text-center text-lg tracking-widest" />
-              </div>
+            <form onSubmit={handleOtpSubmit} noValidate className="space-y-4">
+              <FormField id="otp" label="One-Time Password" required error={otpForm.errors.otp}>
+                <Input type="text" placeholder="Enter 6-digit OTP" value={otpForm.values.otp}
+                  onChange={(e) => { otpForm.handleChange('otp', e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
+                  onBlur={() => otpForm.handleBlur('otp')}
+                  disabled={loading} maxLength={6} className="h-11 text-center text-lg tracking-widest" />
+              </FormField>
               <Button type="submit" className="w-full h-11" disabled={loading}>
                 {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Verifying...</> : 'Verify OTP'}
               </Button>
@@ -135,30 +149,31 @@ const ForgotPassword: React.FC = () => {
           )}
 
           {step === 'reset' && (
-            <form onSubmit={handleResetSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="newPassword">New Password</Label>
+            <form onSubmit={handleResetSubmit} noValidate className="space-y-4">
+              <FormField id="newPassword" label="New Password" required error={resetForm.errors.newPassword} hint="At least 8 characters">
                 <div className="relative">
-                  <Input type={showPassword ? 'text' : 'password'} id="newPassword" placeholder="Enter new password" value={newPassword}
-                    onChange={(e) => { setNewPassword(e.target.value); setError(''); }} disabled={loading} required className="h-11 pr-10" />
+                  <Input type={showPassword ? 'text' : 'password'} placeholder="Enter new password" value={resetForm.values.newPassword}
+                    onChange={(e) => { resetForm.handleChange('newPassword', e.target.value); setError(''); }}
+                    onBlur={() => resetForm.handleBlur('newPassword')}
+                    disabled={loading} className="h-11 pr-10" />
                   <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                     onClick={() => setShowPassword(!showPassword)} tabIndex={-1}>
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
-                <p className="text-xs text-muted-foreground">At least 8 characters</p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
+              </FormField>
+              <FormField id="confirmPassword" label="Confirm Password" required error={resetForm.errors.confirmPassword}>
                 <div className="relative">
-                  <Input type={showConfirmPassword ? 'text' : 'password'} id="confirmPassword" placeholder="Confirm password" value={confirmPassword}
-                    onChange={(e) => { setConfirmPassword(e.target.value); setError(''); }} disabled={loading} required className="h-11 pr-10" />
+                  <Input type={showConfirmPassword ? 'text' : 'password'} placeholder="Confirm password" value={resetForm.values.confirmPassword}
+                    onChange={(e) => { resetForm.handleChange('confirmPassword', e.target.value); setError(''); }}
+                    onBlur={() => resetForm.handleBlur('confirmPassword')}
+                    disabled={loading} className="h-11 pr-10" />
                   <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)} tabIndex={-1}>
                     {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
-              </div>
+              </FormField>
               <Button type="submit" className="w-full h-11" disabled={loading}>
                 {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Resetting...</> : 'Reset Password'}
               </Button>

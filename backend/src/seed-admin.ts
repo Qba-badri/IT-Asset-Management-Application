@@ -9,9 +9,11 @@ import { Department } from './entities/department.entity';
 import { Location } from './entities/location.entity';
 import { Lookup } from './entities/lookup.entity';
 import { PasswordResetToken } from './entities/password-reset-token.entity';
+import { CurrencyRate } from './entities/currency-rate.entity';
 import { Assignment } from './entities/assignment.entity';
 import { Asset } from './entities/asset.entity';
 import { AssetHistory } from './entities/asset-history.entity';
+import { PERMISSION_CATALOG } from './common/permission-catalog';
 import * as bcrypt from 'bcrypt';
 import * as dotenv from 'dotenv';
 
@@ -21,8 +23,8 @@ const AppDataSource = new DataSource({
     type: 'postgres',
     host: process.env.DB_HOST || 'localhost',
     port: parseInt(process.env.DB_PORT || '5432', 10),
-    username: process.env.DB_USERNAME || 'postgres',
-    password: process.env.DB_PASSWORD || '',
+    username: process.env.DB_USERNAME,
+    password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME || 'IT Asset Management',
     entities: [__dirname + '/entities/*.entity{.ts,.js}'],
     synchronize: false,
@@ -57,6 +59,29 @@ async function main() {
         for (const l of lookups) {
             if (!(await lookupRepo.findOneBy({ type: l.type, value: l.value }))) {
                 await lookupRepo.save(lookupRepo.create({ ...l, isActive: true }));
+            }
+        }
+
+        console.log('💱 Seeding Currency Rates...');
+        // rateToBase = "1 [code] = X INR". Insert-if-missing only: never
+        // overwrite rates an admin has tuned in System Settings.
+        const currencyRepo = AppDataSource.getRepository(CurrencyRate);
+        const currencies = [
+            { code: 'INR', name: 'Indian Rupee', symbol: '₹', rateToBase: 1 },
+            { code: 'USD', name: 'US Dollar', symbol: '$', rateToBase: 88.5 },
+            { code: 'EUR', name: 'Euro', symbol: '€', rateToBase: 96.4 },
+            { code: 'GBP', name: 'British Pound', symbol: '£', rateToBase: 112.3 },
+            { code: 'JPY', name: 'Japanese Yen', symbol: '¥', rateToBase: 0.58 },
+            { code: 'AUD', name: 'Australian Dollar', symbol: 'A$', rateToBase: 57.8 },
+            { code: 'CAD', name: 'Canadian Dollar', symbol: 'C$', rateToBase: 63.2 },
+            { code: 'SGD', name: 'Singapore Dollar', symbol: 'S$', rateToBase: 65.6 },
+            { code: 'AED', name: 'UAE Dirham', symbol: 'AED ', rateToBase: 24.1 },
+            { code: 'CHF', name: 'Swiss Franc', symbol: 'CHF ', rateToBase: 99.7 },
+            { code: 'CNY', name: 'Chinese Yuan', symbol: '¥', rateToBase: 12.2 },
+        ];
+        for (const c of currencies) {
+            if (!(await currencyRepo.findOneBy({ code: c.code }))) {
+                await currencyRepo.save(currencyRepo.create({ ...c, isActive: true }));
             }
         }
 
@@ -108,47 +133,7 @@ async function main() {
         }
 
         console.log('🔐 Seeding Permissions...');
-        const permissionsToSeed = [
-            { slug: 'assets.view', module: 'Assets', description: 'View Assets' },
-            { slug: 'assets.create', module: 'Assets', description: 'Create Assets' },
-            { slug: 'assets.edit', module: 'Assets', description: 'Edit Assets' },
-            { slug: 'assets.delete', module: 'Assets', description: 'Delete Assets' },
-            { slug: 'assets.manage', module: 'Assets', description: 'Manage Assets (All actions)' },
-            { slug: 'users.view', module: 'Users', description: 'View Users' },
-            { slug: 'users.create', module: 'Users', description: 'Create Users' },
-            { slug: 'users.edit', module: 'Users', description: 'Edit Users' },
-            { slug: 'users.delete', module: 'Users', description: 'Delete Users' },
-            { slug: 'users.manage', module: 'Users', description: 'Manage Users (All actions)' },
-            { slug: 'roles.view', module: 'Roles', description: 'View Roles' },
-            { slug: 'roles.create', module: 'Roles', description: 'Create Roles' },
-            { slug: 'roles.edit', module: 'Roles', description: 'Edit Roles' },
-            { slug: 'roles.delete', module: 'Roles', description: 'Delete Roles' },
-            { slug: 'roles.manage', module: 'Roles', description: 'Manage Roles (All actions)' },
-            { slug: 'licenses.view', module: 'Licenses', description: 'View Licenses' },
-            { slug: 'licenses.create', module: 'Licenses', description: 'Create Licenses' },
-            { slug: 'licenses.edit', module: 'Licenses', description: 'Edit Licenses' },
-            { slug: 'licenses.delete', module: 'Licenses', description: 'Delete Licenses' },
-            { slug: 'licenses.manage', module: 'Licenses', description: 'Manage Licenses (All actions)' },
-            { slug: 'inventory.view', module: 'Inventory', description: 'View Inventory' },
-            { slug: 'inventory.create', module: 'Inventory', description: 'Create Inventory Items' },
-            { slug: 'inventory.edit', module: 'Inventory', description: 'Edit Inventory Items' },
-            { slug: 'inventory.delete', module: 'Inventory', description: 'Delete Inventory Items' },
-            { slug: 'inventory.manage', module: 'Inventory', description: 'Manage Inventory (All actions)' },
-            { slug: 'reports.view', module: 'Reports', description: 'View Reports' },
-            { slug: 'reports.export', module: 'Reports', description: 'Export Reports' },
-            { slug: 'settings.view', module: 'Settings', description: 'View System Settings' },
-            { slug: 'settings.manage', module: 'Settings', description: 'Manage System Settings' },
-            { slug: 'categories.view', module: 'Categories', description: 'View Categories' },
-            { slug: 'categories.manage', module: 'Categories', description: 'Manage Categories' },
-            { slug: 'locations.view', module: 'Locations', description: 'View Locations' },
-            { slug: 'locations.manage', module: 'Locations', description: 'Manage Locations' },
-            { slug: 'departments.view', module: 'Departments', description: 'View Departments' },
-            { slug: 'departments.manage', module: 'Departments', description: 'Manage Departments' },
-            { slug: 'brands.view', module: 'Brands', description: 'View Brands' },
-            { slug: 'brands.manage', module: 'Brands', description: 'Manage Brands' },
-            { slug: 'vendors.view', module: 'Vendors', description: 'View Vendors' },
-            { slug: 'vendors.manage', module: 'Vendors', description: 'Manage Vendors' },
-        ];
+        const permissionsToSeed = PERMISSION_CATALOG;
 
         for (const p of permissionsToSeed) {
             if (!(await permRepo.findOneBy({ slug: p.slug }))) {
@@ -173,30 +158,39 @@ async function main() {
                 name: 'IT',
                 description: 'IT Department usage for asset and inventory management',
                 permissions: getPerms([
-                    'assets.', 'inventory.', 'licenses.', 'users.', 'reports.',
-                    'locations.', 'departments.', 'categories.', 'brands.', 'vendors.'
+                    'assets.', 'inventory.', 'inventory-mgmt.', 'licenses.', 'users.', 'reports.',
+                    'analytics.view', 'locations.', 'departments.', 'categories.', 'brands.', 'vendors.',
+                    'dashboard.view.all'
                 ])
             },
             {
                 name: 'IT Helpdesk',
                 description: 'Manage assets, inventory, and regular users',
                 permissions: getPerms([
-                    'assets.', 'inventory.', 'licenses.', 'users.view', 'users.create', 'users.edit',
-                    'locations.view', 'departments.view', 'categories.view', 'brands.view', 'vendors.view'
+                    'assets.', 'inventory.', 'inventory-mgmt.', 'licenses.', 'users.view', 'users.create', 'users.edit',
+                    'locations.view', 'departments.view', 'categories.view', 'brands.view', 'vendors.view',
+                    'dashboard.view.all'
                 ])
             },
             {
                 name: 'Manager',
                 description: 'Department or Location Manager',
                 permissions: getPerms([
-                    'assets.view', 'reports.view', 'inventory.view', 'users.view',
-                    'locations.view', 'departments.view'
+                    'assets.view', 'licenses.view', 'reports.view', 'analytics.view', 'inventory.view', 'inventory-mgmt.view',
+                    'users.view', 'locations.view', 'departments.view', 'dashboard.view.department'
                 ])
             },
             {
                 name: 'Auditor',
                 description: 'Read-only access for compliance and audits',
-                permissions: allPerms.filter(p => p.slug.includes('.view') || p.slug.includes('.export'))
+                // Enumerated, not pattern-matched: a blanket `.view` filter also grants
+                // users.view/roles.view, which unhide the Admin nav group.
+                permissions: getPerms([
+                    'assets.view', 'licenses.view',
+                    'inventory.view', 'inventory-mgmt.view',
+                    'reports.view', 'reports.export', 'analytics.view',
+                    'dashboard.view.all',
+                ])
             },
             {
                 name: 'Standard User',
@@ -207,11 +201,15 @@ async function main() {
 
         let adminRole = null;
         for (const r of rolesToSeed) {
+            // The seeded Admin role is the built-in system role: protected from
+            // rename/deactivation/deletion. Runtime checks read is_system.
+            const isSystem = r.name === 'Admin';
             let existingRole = await roleRepo.findOne({ where: { name: r.name }, relations: ['permissions'] });
             if (!existingRole) {
-                existingRole = await roleRepo.save(roleRepo.create({ name: r.name, description: r.description, permissions: r.permissions, isActive: true }));
+                existingRole = await roleRepo.save(roleRepo.create({ name: r.name, description: r.description, permissions: r.permissions, isActive: true, isSystem }));
             } else {
                 existingRole.permissions = r.permissions;
+                if (isSystem && !existingRole.isSystem) existingRole.isSystem = true;
                 existingRole = await roleRepo.save(existingRole);
             }
             if (existingRole.name === 'Admin') adminRole = existingRole;
@@ -219,17 +217,32 @@ async function main() {
 
         console.log('👤 Seeding Users...');
         if (adminRole) {
-            const passwordHash = await bcrypt.hash('password123', 10);
-            let adminUser = await userRepo.findOneBy({ email: 'admin@qbadvisory.com' });
+            // UAT/production-safe: the admin credential must come from env.
+            // A hard-coded password is only permitted in local development.
+            const adminEmail = process.env.SEED_ADMIN_EMAIL || 'admin@qbadvisory.com';
+            let adminPassword = process.env.SEED_ADMIN_PASSWORD;
+            if (!adminPassword) {
+                if (process.env.NODE_ENV === 'development') {
+                    adminPassword = 'password123'; // development-only default
+                    console.warn('⚠️  Using the development-only default admin password. Set SEED_ADMIN_PASSWORD for UAT/production.');
+                } else {
+                    throw new Error(
+                        'SEED_ADMIN_PASSWORD must be set when NODE_ENV is not "development". ' +
+                        'Refusing to seed a well-known default admin password outside local development.',
+                    );
+                }
+            }
+            const passwordHash = await bcrypt.hash(adminPassword, 10);
+            let adminUser = await userRepo.findOneBy({ email: adminEmail });
             if (!adminUser) {
-                await userRepo.save(userRepo.create({ 
-                    email: 'admin@qbadvisory.com', 
-                    firstName: 'System', 
-                    lastName: 'Admin', 
+                await userRepo.save(userRepo.create({
+                    email: adminEmail,
+                    firstName: 'System',
+                    lastName: 'Admin',
                     role: adminRole,
-                    passwordHash, 
-                    isActive: true, 
-                    isVerified: true 
+                    passwordHash,
+                    isActive: true,
+                    isVerified: true
                 }));
             }
         }

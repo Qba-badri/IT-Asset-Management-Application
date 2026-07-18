@@ -10,6 +10,11 @@ import { License } from '../../entities/license.entity';
 import { LicenseAssignment } from '../../entities/license-assignment.entity';
 import { LicenseRenewal } from '../../entities/license-renewal.entity';
 import { LicenseHistory, LicenseAction } from '../../entities/license-history.entity';
+import { Vendor } from '../../entities/vendor.entity';
+import { LicensePlan } from '../../entities/license-plan.entity';
+import { resolveScope } from '../../common/dashboard-scope';
+import { assertActiveReference } from '../../common/validation/active-reference';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   RenewLicenseDto,
   AdjustSeatsDto,
@@ -27,6 +32,7 @@ export class LicensesService {
     private readonly renewalRepository: Repository<LicenseRenewal>,
     @InjectRepository(LicenseHistory)
     private readonly historyRepository: Repository<LicenseHistory>,
+    private readonly notificationsService: NotificationsService,
   ) { }
 
   private async logHistory(
@@ -53,9 +59,21 @@ export class LicensesService {
       .leftJoinAndSelect('license.assignments', 'assignments')
       .orderBy('license.createdAt', 'DESC');
 
-    // RBAC: If not Admin, only show licenses assigned to the user
-    if (user && user.role?.name !== 'Admin') {
-      query.innerJoin('license.assignments', 'userAssignment', 'userAssignment.userId = :userId', { userId: user.id });
+    // Permission-based scoping (subquery avoids row fan-out from the join):
+    // global sees all; department sees licenses assigned to department members;
+    // self sees only licenses assigned to the user.
+    const scope = resolveScope(user);
+    if (scope.level === 'self') {
+      query.andWhere(
+        'license.id IN (SELECT la.license_id FROM license_assignments la WHERE la.user_id = :scopeUid)',
+        { scopeUid: scope.userId },
+      );
+    } else if (scope.level === 'department') {
+      query.andWhere(
+        'license.id IN (SELECT la.license_id FROM license_assignments la ' +
+          'INNER JOIN users u ON u.id = la.user_id WHERE u.department_id = :scopeDept)',
+        { scopeDept: scope.departmentId },
+      );
     }
 
     return query.getMany();
@@ -118,6 +136,12 @@ export class LicensesService {
 
     const savedAssignment = await this.assignmentRepository.save(assignment);
     await this.logHistory(licenseId, LicenseAction.ASSIGNED, performedById, userId, notes);
+    await this.notificationsService.notifyAssignment({
+      assignedUserId: userId,
+      entityType: 'license',
+      entityName: license.softwareName,
+      action: 'assigned',
+    });
     return savedAssignment;
   }
 
@@ -134,6 +158,12 @@ export class LicensesService {
       license.usedSeats = Math.max(0, Number(license.usedSeats) - 1);
       await this.licenseRepository.save(license);
       await this.logHistory(license.id, LicenseAction.UNASSIGNED, performedById, assignment.userId, reason ? `Reason: ${reason}` : 'No reason provided');
+      await this.notificationsService.notifyAssignment({
+        assignedUserId: assignment.userId,
+        entityType: 'license',
+        entityName: license.softwareName,
+        action: 'unassigned',
+      });
     }
 
     await this.assignmentRepository.delete(assignmentId);
@@ -148,17 +178,32 @@ export class LicensesService {
       throw new NotFoundException(`License with ID ${id} not found`);
     }
 
-    if (user && user.role?.name !== 'Admin') {
-      const isAssigned = license.assignments?.some((a: any) => a.userId === user.id);
-      if (!isAssigned) {
-        throw new ForbiddenException('Access denied to this license');
-      }
+    const scope = resolveScope(user);
+    if (scope.level === 'self') {
+      const isAssigned = license.assignments?.some((a: any) => a.userId === scope.userId);
+      if (!isAssigned) throw new ForbiddenException('Access denied to this license');
+    } else if (scope.level === 'department') {
+      const inDept = license.assignments?.some(
+        (a: any) => a.user?.departmentId === scope.departmentId,
+      );
+      if (!inDept) throw new ForbiddenException('Access denied to this license');
     }
 
     return license;
   }
 
+  /** New/changed vendor or plan references must point at active records. */
+  private async assertActiveMasterReferences(
+    data: Partial<License>,
+    current?: License,
+  ): Promise<void> {
+    const em = this.licenseRepository.manager;
+    await assertActiveReference(em.getRepository(Vendor), data.vendorId, 'Vendor', current?.vendorId);
+    await assertActiveReference(em.getRepository(LicensePlan), data.licensePlanId, 'License plan', current?.licensePlanId);
+  }
+
   async create(data: Partial<License>, performedById?: number): Promise<License> {
+    await this.assertActiveMasterReferences(data);
     // Determine next renewal date if not provided
     if (!data.nextRenewalDate && data.expiryDate) {
       data.nextRenewalDate = data.expiryDate;
@@ -171,6 +216,7 @@ export class LicensesService {
 
   async update(id: number, data: Partial<License>): Promise<License> {
     const license = await this.findOne(id);
+    await this.assertActiveMasterReferences(data, license);
     Object.assign(license, data);
     return this.licenseRepository.save(license);
   }

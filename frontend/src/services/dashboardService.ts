@@ -28,6 +28,8 @@ import apiClient from './apiClient';
 // Shared filter shape — mirrors backend DashboardFilters
 // ─────────────────────────────────────────────
 export interface DashboardFilters {
+  /** ISO code to express monetary aggregates in; defaults to the org DEFAULT_CURRENCY */
+  displayCurrency?: string;
   startDate?: string;
   endDate?: string;
   departmentId?: number;

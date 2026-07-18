@@ -7,11 +7,15 @@ import { PageHeader } from '../../components/shared/PageHeader';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
-import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
+import { FormField } from '../../components/shared/FormField';
+import { StatusToggle } from '../../components/shared/StatusToggle';
+import { useForm } from '../../hooks/useForm';
+import { useAuth } from '../../hooks/useAuth';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { Badge } from '../../components/ui/badge';
 import { Pagination } from '../../components/shared/Pagination';
+import { useTableSearchSort, useResetPageOnChange, SortableHead, TableSearch } from '../../components/shared/useTableSearchSort';
 
 const CategoryManagement: React.FC = () => {
     const [categories, setCategories] = useState<InventoryCategory[]>([]);
@@ -19,11 +23,20 @@ const CategoryManagement: React.FC = () => {
     const [submitting, setSubmitting] = useState(false);
     const [showFormModal, setShowFormModal] = useState(false);
     const [editingCategory, setEditingCategory] = useState<InventoryCategory | null>(null);
+    const [togglingStatusFor, setTogglingStatusFor] = useState<number | null>(null);
     const { showToast } = useToast();
+    const { hasPermission } = useAuth();
+    const canManage = hasPermission('inventory-mgmt.manage');
 
-    const [formData, setFormData] = useState({
-        name: '',
-        description: ''
+    const {
+        values: formData,
+        errors,
+        handleChange,
+        handleBlur,
+        validateForm,
+        resetForm,
+    } = useForm({ name: '', description: '' }, {
+        name: { label: 'Category name', required: true },
     });
 
     const [confirmState, setConfirmState] = useState<{
@@ -39,14 +52,30 @@ const CategoryManagement: React.FC = () => {
         onConfirm: () => { }
     });
 
+    // Search / sort. Inventory categories carry no status, so there is nothing
+    // meaningful to filter by beyond the search term.
+    const { searchTerm, setSearchTerm, sortBy, sortOrder, handleSort, result: visibleCategories, resetKey } =
+        useTableSearchSort(categories, {
+            searchIn: (c) => [c.name, c.description],
+            sortValue: (c, column) => {
+                switch (column) {
+                    case 'description': return c.description;
+                    case 'items': return c.items?.length ?? 0;
+                    default: return c.name;
+                }
+            },
+            initialSort: 'name',
+        });
+
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 10;
+    const [itemsPerPage, setItemsPerPage] = useState(10);
+    useResetPageOnChange(resetKey, setCurrentPage);
 
     const paginatedCategories = React.useMemo(() => {
         const start = (currentPage - 1) * itemsPerPage;
-        return categories.slice(start, start + itemsPerPage);
-    }, [categories, currentPage, itemsPerPage]);
+        return visibleCategories.slice(start, start + itemsPerPage);
+    }, [visibleCategories, currentPage, itemsPerPage]);
 
     const loadCategories = async () => {
         try {
@@ -68,13 +97,13 @@ const CategoryManagement: React.FC = () => {
     const handleOpenForm = (category?: InventoryCategory) => {
         if (category) {
             setEditingCategory(category);
-            setFormData({
+            resetForm({
                 name: category.name,
                 description: category.description || ''
             });
         } else {
             setEditingCategory(null);
-            setFormData({ name: '', description: '' });
+            resetForm({ name: '', description: '' });
         }
         setShowFormModal(true);
     };
@@ -82,14 +111,11 @@ const CategoryManagement: React.FC = () => {
     const handleCloseForm = () => {
         setShowFormModal(false);
         setEditingCategory(null);
-        setFormData({ name: '', description: '' });
+        resetForm({ name: '', description: '' });
     };
 
     const handleSubmit = async () => {
-        if (!formData.name.trim()) {
-            showToast('Category name is required', 'error');
-            return;
-        }
+        if (!validateForm()) return;
 
         try {
             setSubmitting(true);
@@ -109,6 +135,42 @@ const CategoryManagement: React.FC = () => {
         } finally {
             setSubmitting(false);
         }
+    };
+
+    const applyCategoryStatus = async (category: InventoryCategory, next: boolean) => {
+        setTogglingStatusFor(category.id);
+        setCategories(prev => prev.map(c => (c.id === category.id ? { ...c, isActive: next } : c)));
+        try {
+            await inventoryService.updateCategory(category.id, {
+                name: category.name,
+                description: category.description,
+                isActive: next,
+            });
+            showToast(`Category ${next ? 'activated' : 'deactivated'}`, 'success');
+        } catch (error: any) {
+            setCategories(prev => prev.map(c => (c.id === category.id ? { ...c, isActive: category.isActive } : c)));
+            showToast(error.response?.data?.message || 'Failed to update category status', 'error');
+        } finally {
+            setTogglingStatusFor(null);
+        }
+    };
+
+    const handleToggleStatus = (category: InventoryCategory, next: boolean) => {
+        if (next) {
+            applyCategoryStatus(category, next);
+            return;
+        }
+        const itemCount = category.items?.length ?? 0;
+        setConfirmState({
+            show: true,
+            title: 'Deactivate Category',
+            type: 'warning',
+            message: `Deactivate "${category.name}"? ${itemCount} item(s) keep this category, but it will no longer be offered when creating or editing inventory items. Reactivate at any time.`,
+            onConfirm: () => {
+                setConfirmState(prev => ({ ...prev, show: false }));
+                applyCategoryStatus(category, next);
+            },
+        });
     };
 
     const handleDeleteClick = (category: InventoryCategory) => {
@@ -159,20 +221,34 @@ const CategoryManagement: React.FC = () => {
 
             <Card>
                 <CardContent className="p-0">
+                    <div className="flex flex-wrap items-center gap-3 p-4">
+                        <TableSearch
+                            value={searchTerm}
+                            onChange={setSearchTerm}
+                            placeholder="Search categories..."
+                            label="Search categories"
+                        />
+                        <span className="text-xs text-muted-foreground ml-auto">
+                            {visibleCategories.length} of {categories.length}
+                        </span>
+                    </div>
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Category Name</TableHead>
-                                <TableHead>Description</TableHead>
-                                <TableHead>Items Count</TableHead>
+                                <SortableHead column="name" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort}>Category Name</SortableHead>
+                                <SortableHead column="description" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort}>Description</SortableHead>
+                                <SortableHead column="items" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort}>Items Count</SortableHead>
+                                <TableHead>Status</TableHead>
                                 <TableHead className="w-[100px]">Actions</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {paginatedCategories.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
-                                        No categories found. Create your first category to get started.
+                                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                                        {categories.length === 0
+                                            ? 'No categories found. Create your first category to get started.'
+                                            : 'No categories match your search'}
                                     </TableCell>
                                 </TableRow>
                             ) : (
@@ -191,6 +267,14 @@ const CategoryManagement: React.FC = () => {
                                             <Badge variant="outline">
                                                 {category.items?.length || 0} items
                                             </Badge>
+                                        </TableCell>
+                                        <TableCell>
+                                            <StatusToggle
+                                                checked={category.isActive !== false}
+                                                onToggle={canManage ? (next) => handleToggleStatus(category, next) : undefined}
+                                                loading={togglingStatusFor === category.id}
+                                                ariaLabel={`Toggle status for ${category.name}`}
+                                            />
                                         </TableCell>
                                         <TableCell>
                                             <div className="flex items-center gap-2">
@@ -217,10 +301,11 @@ const CategoryManagement: React.FC = () => {
                     </Table>
                     <Pagination
                         currentPage={currentPage}
-                        totalPages={Math.ceil(categories.length / itemsPerPage)}
+                        totalPages={Math.ceil(visibleCategories.length / itemsPerPage)}
                         onPageChange={setCurrentPage}
-                        totalItems={categories.length}
+                        totalItems={visibleCategories.length}
                         pageSize={itemsPerPage}
+                        onPageSizeChange={(size) => { setItemsPerPage(size); setCurrentPage(1); }}
                     />
                 </CardContent>
             </Card>
@@ -234,22 +319,21 @@ const CategoryManagement: React.FC = () => {
                         </DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4">
-                        <div className="space-y-2">
-                            <Label>Category Name *</Label>
+                        <FormField id="inventory-category-name" label="Category Name" required error={errors.name}>
                             <Input
                                 value={formData.name}
-                                onChange={e => setFormData({ ...formData, name: e.target.value })}
+                                onChange={e => handleChange('name', e.target.value)}
+                                onBlur={() => handleBlur('name')}
                                 placeholder="e.g., Office Supplies"
                             />
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Description</Label>
+                        </FormField>
+                        <FormField id="inventory-category-description" label="Description">
                             <Input
                                 value={formData.description}
-                                onChange={e => setFormData({ ...formData, description: e.target.value })}
+                                onChange={e => handleChange('description', e.target.value)}
                                 placeholder="Optional description"
                             />
-                        </div>
+                        </FormField>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={handleCloseForm}>

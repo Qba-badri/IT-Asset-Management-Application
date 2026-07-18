@@ -1,6 +1,8 @@
 import apiClient from './apiClient';
 
 export interface DashboardFilters {
+    /** ISO code to express monetary aggregates in; defaults to the org DEFAULT_CURRENCY */
+    displayCurrency?: string;
     startDate?: string;
     endDate?: string;
     departmentId?: number | string;

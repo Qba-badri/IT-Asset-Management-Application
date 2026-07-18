@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ScheduleModule } from '@nestjs/schedule';
 import * as path from 'path';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -27,6 +30,7 @@ import { DepartmentsModule } from './modules/departments/departments.module';
 import { MasterModule } from './modules/master/master.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 // Existing entities
 import { User } from './entities/user.entity';
@@ -69,6 +73,14 @@ import { InventoryAssignment } from './entities/inventory-assignment.entity';
 import { InventoryReturn } from './entities/inventory-return.entity';
 import { InventoryTransaction } from './entities/inventory-transaction.entity';
 import { SystemSetting } from './entities/system-setting.entity';
+import { IntegrationSetting } from './entities/integration-setting.entity';
+import { CurrencyRate } from './entities/currency-rate.entity';
+import { CurrenciesModule } from './modules/currencies/currencies.module';
+import { ValidationModule } from './common/validation/validation.module';
+import { ValidationObservation } from './entities/validation-observation.entity';
+import { NotificationLog } from './entities/notification-log.entity';
+import { NotificationRecipientConfig } from './entities/notification-recipient-config.entity';
+import { NotificationTemplate } from './entities/notification-template.entity';
 
 @Module({
   imports: [
@@ -77,15 +89,28 @@ import { SystemSetting } from './entities/system-setting.entity';
       envFilePath: ['.env', 'backend/.env'],
       expandVariables: true,
     }),
+    // Global rate limiting, driven by the RATE_LIMIT_* env vars (TTL in seconds)
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (configService: ConfigService) => ({
+        throttlers: [
+          {
+            ttl: parseInt(configService.get('RATE_LIMIT_TTL', '60'), 10) * 1000,
+            limit: parseInt(configService.get('RATE_LIMIT_MAX', '300'), 10),
+          },
+        ],
+      }),
+      inject: [ConfigService],
+    }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
-        host: configService.get('DB_HOST', 'localhost'),
-        port: parseInt(configService.get('DB_PORT', '5432'), 10),
-        username: configService.get('DB_USERNAME', 'postgres'),
-        password: configService.get('DB_PASSWORD', 'postgres'),
-        database: configService.get('DB_NAME', 'IT Asset Management'),
+        host: configService.getOrThrow('DB_HOST'),
+        port: parseInt(configService.getOrThrow('DB_PORT'), 10),
+        username: configService.getOrThrow('DB_USERNAME'),
+        password: configService.getOrThrow('DB_PASSWORD'),
+        database: configService.getOrThrow('DB_NAME'),
         entities: [
           User,
           PasswordResetToken,
@@ -123,12 +148,22 @@ import { SystemSetting } from './entities/system-setting.entity';
           InventoryReturn,
           InventoryTransaction,
           SystemSetting,
+          IntegrationSetting,
+          CurrencyRate,
+          ValidationObservation,
+          NotificationLog,
+          NotificationRecipientConfig,
+          NotificationTemplate,
         ],
-        synchronize: true,
+        // Schema is managed by migrations (npm run migration:run).
+        // DB_SYNCHRONIZE=true is a local-development-only escape hatch and is
+        // refused in production by validateEnvironment().
+        synchronize: configService.get('DB_SYNCHRONIZE') === 'true',
         logging: configService.get('NODE_ENV') === 'development',
       }),
       inject: [ConfigService],
     }),
+    ScheduleModule.forRoot(),
     AuthModule,
     RbacModule,
     UsersModule,
@@ -151,8 +186,14 @@ import { SystemSetting } from './entities/system-setting.entity';
     AuditLogsModule,
     InventoryManagementModule,
     SettingsModule,
+    CurrenciesModule,
+    ValidationModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+  ],
 })
 export class AppModule { }

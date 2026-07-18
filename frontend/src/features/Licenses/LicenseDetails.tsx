@@ -26,6 +26,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/ta
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { Progress } from '../../components/ui/progress';
 import { useCurrency } from '../../context/CurrencyContext';
+import { useAuth } from '../../hooks/useAuth';
 
 interface LicenseDetailsProps {
     license: License;
@@ -43,6 +44,9 @@ const LicenseDetails: React.FC<LicenseDetailsProps> = ({
     onUnassign
 }) => {
     const { formatCost } = useCurrency();
+    // Mirrors the backend guard: assign/renew/unassign routes require licenses.manage
+    const { hasPermission } = useAuth();
+    const canManage = hasPermission('licenses.manage');
     const [history, setHistory] = useState<LicenseHistory[]>([]);
     const [loadingHistory, setLoadingHistory] = useState(false);
 
@@ -81,12 +85,14 @@ const LicenseDetails: React.FC<LicenseDetailsProps> = ({
                     </h2>
                     <p className="text-muted-foreground">{license.vendor} • {license.category} • {license.type}</p>
                 </div>
-                <div className="flex gap-2">
-                    <Button variant="outline" onClick={onRenew}><RefreshCw className="mr-2 h-4 w-4" /> Renew</Button>
-                    <Button onClick={onAssign} disabled={isExpired || license.usedSeats >= license.totalSeats}>
-                        <UserPlus className="mr-2 h-4 w-4" /> Assign
-                    </Button>
-                </div>
+                {canManage && (
+                    <div className="flex gap-2">
+                        <Button variant="outline" onClick={onRenew}><RefreshCw className="mr-2 h-4 w-4" /> Renew</Button>
+                        <Button onClick={onAssign} disabled={isExpired || license.usedSeats >= license.totalSeats}>
+                            <UserPlus className="mr-2 h-4 w-4" /> Assign
+                        </Button>
+                    </div>
+                )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -140,13 +146,13 @@ const LicenseDetails: React.FC<LicenseDetailsProps> = ({
                                     <TableHead>Email</TableHead>
                                     <TableHead>Assigned Date</TableHead>
                                     <TableHead>Notes</TableHead>
-                                    <TableHead className="w-[100px]">Actions</TableHead>
+                                    {canManage && <TableHead className="w-[100px]">Actions</TableHead>}
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {license.assignments?.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No users assigned</TableCell>
+                                        <TableCell colSpan={canManage ? 5 : 4} className="text-center py-8 text-muted-foreground">No users assigned</TableCell>
                                     </TableRow>
                                 ) : (
                                     license.assignments?.map((assignment) => (
@@ -155,11 +161,13 @@ const LicenseDetails: React.FC<LicenseDetailsProps> = ({
                                             <TableCell>{assignment.user?.email}</TableCell>
                                             <TableCell>{new Date(assignment.assignedAt).toLocaleDateString()}</TableCell>
                                             <TableCell>{assignment.notes || '-'}</TableCell>
-                                            <TableCell>
-                                                <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => onUnassign(assignment.id)}>
-                                                    Remove
-                                                </Button>
-                                            </TableCell>
+                                            {canManage && (
+                                                <TableCell>
+                                                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => onUnassign(assignment.id)}>
+                                                        Remove
+                                                    </Button>
+                                                </TableCell>
+                                            )}
                                         </TableRow>
                                     ))
                                 )}

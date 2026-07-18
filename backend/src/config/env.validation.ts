@@ -30,10 +30,18 @@ interface EnvironmentConfig {
     SMTP_PASSWORD?: string;
     EMAIL_FROM?: string;
 
-    // Azure AD (Optional)
+    // Azure AD (Optional — can also be set from the Admin UI)
     AZURE_TENANT_ID?: string;
     AZURE_CLIENT_ID?: string;
     AZURE_CLIENT_SECRET?: string;
+
+    // QPeople HRMS (Optional — can also be set from the Admin UI)
+    QPEOPLE_API_URL?: string;
+    QPEOPLE_API_TOKEN?: string;
+
+    // Encryption key for DB-stored integration credentials
+    // (falls back to JWT_SECRET when unset)
+    SETTINGS_ENCRYPTION_KEY?: string;
 
     // File Upload
     MAX_FILE_SIZE?: string;
@@ -87,6 +95,24 @@ export function validateEnvironment(): void {
             `Missing required environment variables:\n${missing.map((v) => `  - ${v}`).join('\n')}\n\n` +
             `Please check your .env file and ensure all required variables are set.\n` +
             `See .env.example for reference.`,
+        );
+    }
+
+    // Hard failures (not warnings) regardless of environment
+    if (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {
+        throw new Error(
+            'JWT_SECRET must be at least 32 characters long. Generate one with: node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"',
+        );
+    }
+
+    // Schema synchronization must never run outside local development
+    if (
+        process.env.DB_SYNCHRONIZE === 'true' &&
+        process.env.NODE_ENV !== 'development'
+    ) {
+        throw new Error(
+            'DB_SYNCHRONIZE=true is only allowed when NODE_ENV=development. ' +
+            'UAT/production schemas are managed with "npm run migration:run".',
         );
     }
 
@@ -183,6 +209,13 @@ export function getEnvironmentConfig(): EnvironmentConfig {
         AZURE_TENANT_ID: process.env.AZURE_TENANT_ID,
         AZURE_CLIENT_ID: process.env.AZURE_CLIENT_ID,
         AZURE_CLIENT_SECRET: process.env.AZURE_CLIENT_SECRET,
+
+        // QPeople HRMS (Optional)
+        QPEOPLE_API_URL: process.env.QPEOPLE_API_URL,
+        QPEOPLE_API_TOKEN: process.env.QPEOPLE_API_TOKEN,
+
+        // Integration credential encryption
+        SETTINGS_ENCRYPTION_KEY: process.env.SETTINGS_ENCRYPTION_KEY,
 
         // File Upload
         MAX_FILE_SIZE: process.env.MAX_FILE_SIZE || '5242880',

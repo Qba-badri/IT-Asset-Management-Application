@@ -10,7 +10,12 @@ import {
 } from '../ui/tooltip';
 
 interface FormFieldProps {
-    label: string;
+    /**
+     * ReactNode rather than string so a label can carry an icon alongside its
+     * text, which several forms already did before adopting this component.
+     * A plain string remains the common case.
+     */
+    label: ReactNode;
     required?: boolean;
     error?: string;
     hint?: string;
@@ -19,6 +24,9 @@ interface FormFieldProps {
     id?: string;
     hideLabel?: boolean;
 }
+
+/** Host elements that count as the field's control; components always do. */
+const HOST_CONTROL_TAGS = ['input', 'select', 'textarea'];
 
 export const FormField: React.FC<FormFieldProps> = ({
     label,
@@ -30,6 +38,39 @@ export const FormField: React.FC<FormFieldProps> = ({
     id,
     hideLabel = false,
 }) => {
+    /**
+     * Lands id / aria-* / error styling on the field's actual control.
+     *
+     * Fields like password inputs wrap the control in a plain <div> (for an
+     * absolutely-positioned toggle button), so cloning onto the direct child
+     * would put the red border and the label's `for` target on a borderless
+     * div. Recurse through host <div> wrappers to the first real control.
+     * Auxiliary controls that carry their own aria-label (e.g. a currency
+     * picker beside a cost input) are left alone.
+     */
+    let injected = false;
+    const injectFieldProps = (child: ReactNode): ReactNode => {
+        if (!React.isValidElement(child) || injected) return child;
+        if (child.type === 'div') {
+            return React.cloneElement(child as React.ReactElement<any>, {
+                children: React.Children.map((child.props as any).children, injectFieldProps),
+            });
+        }
+        const isControl = typeof child.type !== 'string' || HOST_CONTROL_TAGS.includes(child.type);
+        if (!isControl || (child.props as any)['aria-label']) return child;
+        injected = true;
+        return React.cloneElement(child as React.ReactElement<any>, {
+            id,
+            'aria-required': required,
+            'aria-invalid': !!error,
+            'aria-describedby': error ? `${id}-error` : (hint ? `${id}-hint` : undefined),
+            className: cn(
+                (child.props as any).className,
+                error && "border-destructive ring-destructive/20 focus-visible:ring-destructive"
+            ),
+        });
+    };
+
     return (
         <div className={cn("space-y-1.5", className)}>
             <div className="flex items-center justify-between">
@@ -56,21 +97,7 @@ export const FormField: React.FC<FormFieldProps> = ({
             </div>
 
             <div className="relative">
-                {React.Children.map(children, (child) => {
-                    if (React.isValidElement(child)) {
-                        return React.cloneElement(child as React.ReactElement<any>, {
-                            id,
-                            'aria-required': required,
-                            'aria-invalid': !!error,
-                            'aria-describedby': error ? `${id}-error` : (hint ? `${id}-hint` : undefined),
-                            className: cn(
-                                child.props.className,
-                                error && "border-destructive ring-destructive/20 focus-visible:ring-destructive"
-                            ),
-                        });
-                    }
-                    return child;
-                })}
+                {React.Children.map(children, injectFieldProps)}
             </div>
 
             {error && (

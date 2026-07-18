@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { AuditEvent, AuditAction } from '../../entities/audit-event.entity';
 
 export interface AuditEventQueryDto {
@@ -23,20 +23,30 @@ export class AuditEventsService {
     private readonly auditRepo: Repository<AuditEvent>,
   ) {}
 
-  async logEvent(data: {
-    action: AuditAction;
-    entityType: string;
-    entityId?: number;
-    actorId?: number;
-    metadata?: Record<string, any>;
-    ipAddress?: string;
-    userAgent?: string;
-  }) {
-    const event = this.auditRepo.create({
+  /**
+   * Records an audit event. Pass `manager` to write the event inside the
+   * caller's transaction, making the audited change and its audit record
+   * atomic — sensitive changes (e.g. status toggles) must not commit without
+   * their audit row, and vice versa.
+   */
+  async logEvent(
+    data: {
+      action: AuditAction;
+      entityType: string;
+      entityId?: number;
+      actorId?: number;
+      metadata?: Record<string, any>;
+      ipAddress?: string;
+      userAgent?: string;
+    },
+    manager?: EntityManager,
+  ) {
+    const repo = manager ? manager.getRepository(AuditEvent) : this.auditRepo;
+    const event = repo.create({
       ...data,
       metadata: data.metadata || {},
     });
-    return this.auditRepo.save(event);
+    return repo.save(event);
   }
 
   async findAll(

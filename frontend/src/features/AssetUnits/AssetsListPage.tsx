@@ -44,7 +44,7 @@ const AssetsListPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<AssetUnitStatus | ''>('');
   const [locationFilter, setLocationFilter] = useState<number | ''>('');
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(25);
 
   // Sorting (client-side within current page)
   const [sortKey, setSortKey] = useState<SortKey>('assetTag');
@@ -295,6 +295,7 @@ const AssetsListPage: React.FC = () => {
             onPageChange={setPage}
             totalItems={total}
             pageSize={pageSize}
+            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
           />
         </CardContent>
       </Card>

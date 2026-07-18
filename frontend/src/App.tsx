@@ -1,15 +1,16 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from './hooks/useAuth';
 import Login from './components/Login/Login';
 import ForgotPassword from './components/ForgotPassword/ForgotPassword';
 import AppShell from './components/layout/AppShell';
 import DashboardHome from './features/Dashboard/DashboardHome';
 import UserManagement from './features/UserManagement/UserManagement';
-import RoleMaster from './features/Admin/RoleMaster';
-import PermissionMaster from './features/Admin/PermissionMaster';
-import CategoryMaster from './features/Admin/CategoryMaster';
-import { BrandMaster, VendorMaster, ConditionMaster, StatusMaster, DisposalMethodMaster, PlanMaster } from './features/Admin/MasterPages';
+import AssetSetupPage from './features/Admin/AssetSetupPage';
+import AccessControlPage from './features/Admin/AccessControlPage';
+import { PlanMaster } from './features/Admin/MasterPages';
 import SystemSettings from './features/Admin/SystemSettings';
+import NotificationSettings from './features/Admin/NotificationSettings';
 import AssetManagement from './features/Assets/AssetManagement';
 import AssetDetails from './features/Assets/AssetDetails';
 import AssetAuditLog from './features/Assets/AssetAuditLog';
@@ -35,6 +36,16 @@ import InventoryManagementModule from './features/ConsumableInventory/InventoryM
 import CategoryManagement from './features/ConsumableInventory/CategoryManagement';
 import ErrorBoundary from './components/shared/ErrorBoundary';
 
+// Landing for /dashboard. Users with a dashboard scope (global/department) get
+// the org dashboard; everyone else (Standard Users) is sent to My Portfolio.
+function DashboardLanding() {
+  const { hasAnyPermission } = useAuth();
+  if (!hasAnyPermission(['dashboard.view.all', 'dashboard.view.department'])) {
+    return <Navigate to="/dashboard/profile" replace />;
+  }
+  return <DashboardHome />;
+}
+
 function App() {
   return (
     <ToastProvider>
@@ -46,7 +57,7 @@ function App() {
               <Route path="/forgot-password" element={<ForgotPassword />} />
 
               <Route path="/dashboard" element={<AppShell />}>
-                <Route index element={<DashboardHome />} />
+                <Route index element={<DashboardLanding />} />
                 <Route path="admin/users" element={<UserManagement />} />
                 <Route path="assets" element={<AssetManagement />} />
                 <Route path="assets/:id" element={<AssetDetails />} />
@@ -54,17 +65,12 @@ function App() {
                 <Route path="licenses" element={<LicenseManagement />} />
                 <Route path="inventory" element={<InventoryManagementModule />} />
                 <Route path="analytics" element={<AnalyticsDashboard />} />
-                <Route path="admin/roles" element={<RoleMaster />} />
-                <Route path="admin/permissions" element={<PermissionMaster />} />
-                <Route path="admin/categories" element={<CategoryMaster />} />
+                <Route path="admin/access-control" element={<AccessControlPage />} />
+                <Route path="admin/asset-setup" element={<AssetSetupPage />} />
                 <Route path="admin/inventory-categories" element={<CategoryManagement />} />
-                <Route path="admin/brands" element={<BrandMaster />} />
-                <Route path="admin/vendors" element={<VendorMaster />} />
-                <Route path="admin/conditions" element={<ConditionMaster />} />
-                <Route path="admin/statuses" element={<StatusMaster />} />
-                <Route path="admin/disposal-methods" element={<DisposalMethodMaster />} />
                 <Route path="admin/plans" element={<PlanMaster />} />
                 <Route path="admin/settings" element={<SystemSettings />} />
+                <Route path="admin/notifications" element={<NotificationSettings />} />
                 <Route path="profile" element={<UserProfile />} />
                 <Route path="settings" element={<UserSettings />} />
 

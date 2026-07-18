@@ -13,8 +13,11 @@ import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
 import { Textarea } from '../../components/ui/textarea';
-import { Label } from '../../components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { SelectItem } from '../../components/ui/select';
+import { FormField } from '../../components/shared/FormField';
+import { SelectField } from '../../components/shared/SelectField';
+import { useValidatedForm, CrossFieldValidator } from '../../hooks/useValidatedForm';
+import { isEmptyValue } from '../../lib/validation/isEmpty';
 
 type Mode = 'issue' | 'return';
 
@@ -45,20 +48,140 @@ const IssueReturnPage: React.FC = () => {
   const [selectedCatalog, setSelectedCatalog] = useState<CatalogItem | null>(null);
   const [catalogSearch, setCatalogSearch] = useState('');
   const [availableUnits, setAvailableUnits] = useState<AssetUnit[]>([]);
-  const [selectedUnit, setSelectedUnit] = useState<AssetUnit | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
-
-  const [issueForm, setIssueForm] = useState<IssueInput>({
-    catalogItemId: 0,
-    assigneeId: 0,
-  });
 
   // ─── Return State ─────────────────────────────────────────
   const [assignmentSearch, setAssignmentSearch] = useState('');
   const [activeAssignments, setActiveAssignments] = useState<Assignment[]>([]);
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
-  const [returnForm, setReturnForm] = useState<ReturnInput>({
-    assignmentId: 0,
+
+  /**
+   * Issue rules the DTO cannot express.
+   *
+   * assetUnitId and locationId are required depending on the catalog item's
+   * trackMode, which is not part of the payload — the server reads it from the
+   * database, so @RequiredWhen (which gates on a sibling field) cannot describe
+   * it. These mirror the imperative checks in AssignmentsService.issue().
+   *
+   * quantity is a UI-only rule: the service defaults an absent quantity to 1,
+   * so the API does not require it, but this form always has. Emptiness is
+   * tested with isEmptyValue rather than `!value` so a quantity of 0 falls
+   * through to the schema's @Min(1) and gets the accurate message.
+   */
+  const issueRules: CrossFieldValidator<Record<string, any>> = (values) => {
+    const errors: Record<string, string> = {};
+    if (!selectedCatalog) return errors;
+
+    if (selectedCatalog.trackMode === 'serialized') {
+      // Checked against the resolved unit, not the raw id: switching catalog
+      // items can leave an id that is no longer in availableUnits, which would
+      // pass a bare presence check while the payload omits it — and the server
+      // would reject what the client called valid.
+      if (!selectedUnit) {
+        errors.assetUnitId = 'Select Asset Unit is required for serialized items.';
+      }
+    }
+
+    if (selectedCatalog.trackMode === 'bulk_qty') {
+      if (isEmptyValue(values.quantity, 'number')) {
+        errors.quantity = 'Quantity is required.';
+      }
+      if (isEmptyValue(values.locationId, 'select')) {
+        errors.locationId = 'Issue From Location is required for bulk items.';
+      }
+    }
+
+    return errors;
+  };
+
+  const {
+    values: issueForm,
+    errors: issueErrors,
+    isRequired: isIssueFieldRequired,
+    handleChange: handleIssueChange,
+    handleBlur: handleIssueBlur,
+    validateForm: validateIssueForm,
+    applyServerErrors: applyIssueServerErrors,
+    resetForm: resetIssueForm,
+  } = useValidatedForm({
+    formKey: 'assignment.issue',
+    initialValues: {
+      catalogItemId: 0,
+      assetUnitId: undefined,
+      assigneeId: undefined,
+      quantity: undefined,
+      locationId: undefined,
+      departmentId: undefined,
+      dueDate: '',
+      notes: '',
+    } as Record<string, any>,
+    labels: {
+      assetUnitId: 'Select Asset Unit',
+      assigneeId: 'Assign To (Employee ID)',
+      quantity: 'Quantity',
+      locationId: 'Issue From Location',
+      dueDate: 'Due Date',
+      notes: 'Notes',
+    },
+    crossFieldValidators: [issueRules],
+  });
+
+  /**
+   * Derived rather than separate state: assetUnitId lives in the form values so
+   * it can be validated and carry a field-level error like any other field.
+   */
+  const selectedUnit = availableUnits.find((u) => u.id === issueForm.assetUnitId) ?? null;
+
+  /**
+   * Return rules the DTO cannot express.
+   *
+   * quantity is UI-only for bulk items (the service defaults it to 1), and the
+   * remaining-quantity ceiling depends on the selected assignment's current
+   * state, which no DTO decorator can see. The server enforces the same ceiling
+   * in processReturn().
+   */
+  const returnRules: CrossFieldValidator<Record<string, any>> = (values) => {
+    const errors: Record<string, string> = {};
+    if (!selectedAssignment) return errors;
+
+    const remaining = selectedAssignment.quantity - selectedAssignment.returnedQuantity;
+
+    if (selectedAssignment.catalogItem?.trackMode === 'bulk_qty') {
+      if (isEmptyValue(values.quantity, 'number')) {
+        errors.quantity = 'Return Quantity is required.';
+      } else if (Number(values.quantity) > remaining) {
+        errors.quantity = `Cannot return more than the ${remaining} remaining.`;
+      }
+    }
+
+    return errors;
+  };
+
+  const {
+    values: returnForm,
+    errors: returnErrors,
+    isRequired: isReturnFieldRequired,
+    handleChange: handleReturnChange,
+    handleBlur: handleReturnBlur,
+    validateForm: validateReturnForm,
+    applyServerErrors: applyReturnServerErrors,
+    resetForm: resetReturnForm,
+  } = useValidatedForm({
+    formKey: 'assignment.return',
+    initialValues: {
+      assignmentId: 0,
+      quantity: undefined,
+      condition: 'good',
+      returnToLocationId: undefined,
+      notes: '',
+    } as Record<string, any>,
+    labels: {
+      quantity: 'Return Quantity',
+      condition: 'Condition on Return',
+      returnToLocationId: 'Return To Location',
+      notes: 'Notes',
+    },
+    crossFieldValidators: [returnRules],
   });
 
   // ─── Load lookups ─────────────────────────────────────────
@@ -87,7 +210,6 @@ const IssueReturnPage: React.FC = () => {
         .catch(() => setAvailableUnits([]));
     } else {
       setAvailableUnits([]);
-      setSelectedUnit(null);
     }
   }, [selectedCatalog]);
 
@@ -115,6 +237,7 @@ const IssueReturnPage: React.FC = () => {
   const handleIssue = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCatalog) return;
+    if (!validateIssueForm()) return;
 
     const payload: IssueInput = {
       catalogItemId: selectedCatalog.id,
@@ -122,8 +245,8 @@ const IssueReturnPage: React.FC = () => {
       quantity: selectedCatalog.trackMode === 'bulk_qty' ? issueForm.quantity : 1,
       locationId: issueForm.locationId,
       departmentId: issueForm.departmentId,
-      dueDate: issueForm.dueDate,
-      notes: issueForm.notes,
+      dueDate: issueForm.dueDate || undefined,
+      notes: issueForm.notes || undefined,
     };
 
     if (selectedCatalog.trackMode === 'serialized' && selectedUnit) {
@@ -139,10 +262,12 @@ const IssueReturnPage: React.FC = () => {
       );
       // Reset form
       setSelectedCatalog(null);
-      setSelectedUnit(null);
-      setIssueForm({ catalogItemId: 0, assigneeId: 0 });
+      resetIssueForm();
     } catch (err: any) {
-      showToast(err.response?.data?.message || 'Issue failed', 'error');
+      // Server-side validation wins: put its messages on the fields that caused
+      // them and keep the form open so the user keeps their input.
+      if (err?.fieldErrors) applyIssueServerErrors(err.fieldErrors);
+      showToast(err?.friendlyMessage || 'Issue failed', 'error');
     } finally {
       setLoading(false);
     }
@@ -152,13 +277,14 @@ const IssueReturnPage: React.FC = () => {
   const handleReturn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedAssignment) return;
+    if (!validateReturnForm()) return;
 
     const payload: ReturnInput = {
       assignmentId: selectedAssignment.id,
       quantity: returnForm.quantity || 1,
       condition: returnForm.condition,
       returnToLocationId: returnForm.returnToLocationId,
-      notes: returnForm.notes,
+      notes: returnForm.notes || undefined,
     };
 
     setLoading(true);
@@ -169,11 +295,12 @@ const IssueReturnPage: React.FC = () => {
         'success',
       );
       setSelectedAssignment(null);
-      setReturnForm({ assignmentId: 0 });
+      resetReturnForm();
       setActiveAssignments([]);
       setAssignmentSearch('');
     } catch (err: any) {
-      showToast(err.response?.data?.message || 'Return failed', 'error');
+      if (err?.fieldErrors) applyReturnServerErrors(err.fieldErrors);
+      showToast(err?.friendlyMessage || 'Return failed', 'error');
     } finally {
       setLoading(false);
     }
@@ -255,7 +382,10 @@ const IssueReturnPage: React.FC = () => {
                       onClick={() => {
                         setSelectedCatalog(item);
                         setCatalogSearch('');
-                        setIssueForm((f) => ({ ...f, catalogItemId: item.id }));
+                        handleIssueChange('catalogItemId', item.id);
+                        // A unit from the previously selected item must not
+                        // carry over to a different one.
+                        handleIssueChange('assetUnitId', undefined);
                       }}
                       className="w-full text-left px-4 py-2 hover:bg-accent flex items-center justify-between"
                     >
@@ -312,27 +442,27 @@ const IssueReturnPage: React.FC = () => {
                 {/* Serialized: Asset Unit Picker */}
                 {selectedCatalog.trackMode === 'serialized' && (
                   <div>
-                    <Label className="mb-1 flex items-center">
-                      <Tag className="w-4 h-4 inline mr-1" /> Select Asset Unit
-                    </Label>
-                    <Select
-                      value={selectedUnit ? String(selectedUnit.id) : ''}
-                      onValueChange={(value) => {
-                        const unit = availableUnits.find((u) => u.id === Number(value));
-                        setSelectedUnit(unit || null);
-                      }}
+                    <FormField
+                      id="assetUnitId"
+                      label={<><Tag className="w-4 h-4 inline mr-1" /> Select Asset Unit</>}
+                      /* Required via ISSUE_FORM rules, mirroring the server's
+                         "assetUnitId is required for serialized items". */
+                      required
+                      error={issueErrors.assetUnitId}
                     >
-                      <SelectTrigger>
-                        <SelectValue placeholder="— Select available unit —" />
-                      </SelectTrigger>
-                      <SelectContent>
+                      <SelectField
+                        value={issueForm.assetUnitId ? String(issueForm.assetUnitId) : ''}
+                        onValueChange={(value) => handleIssueChange('assetUnitId', Number(value))}
+                        onBlur={() => handleIssueBlur('assetUnitId')}
+                        placeholder="— Select available unit —"
+                      >
                         {availableUnits.map((u) => (
                           <SelectItem key={u.id} value={String(u.id)}>
                             {u.assetTag} {u.serialNumber ? `(S/N: ${u.serialNumber})` : ''} — {u.condition}
                           </SelectItem>
                         ))}
-                      </SelectContent>
-                    </Select>
+                      </SelectField>
+                    </FormField>
                     {availableUnits.length === 0 && (
                       <p className="text-xs text-red-500 mt-1">No units available in stock</p>
                     )}
@@ -342,77 +472,103 @@ const IssueReturnPage: React.FC = () => {
                 {/* BulkQty: Quantity + Location */}
                 {selectedCatalog.trackMode === 'bulk_qty' && (
                   <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label className="mb-1 flex items-center">
-                        <Hash className="w-4 h-4 inline mr-1" /> Quantity
-                      </Label>
+                    <FormField
+                      id="quantity"
+                      label={<><Hash className="w-4 h-4 inline mr-1" /> Quantity</>}
+                      /* UI-only rule: the service defaults an absent quantity
+                         to 1, so the API does not require it — but this form
+                         always has. */
+                      required
+                      error={issueErrors.quantity}
+                    >
                       <Input
                         type="number"
                         min={1}
-                        value={issueForm.quantity || ''}
-                        onChange={(e) => setIssueForm((f) => ({ ...f, quantity: Number(e.target.value) }))}
-                        required
+                        value={issueForm.quantity ?? ''}
+                        onChange={(e) =>
+                          handleIssueChange(
+                            'quantity',
+                            e.target.value === '' ? undefined : Number(e.target.value),
+                          )
+                        }
+                        onBlur={() => handleIssueBlur('quantity')}
                       />
-                    </div>
-                    <div>
-                      <Label className="mb-1 flex items-center">
-                        <MapPin className="w-4 h-4 inline mr-1" /> Issue From Location
-                      </Label>
-                      <Select
+                    </FormField>
+                    <FormField
+                      id="locationId"
+                      label={<><MapPin className="w-4 h-4 inline mr-1" /> Issue From Location</>}
+                      /* Mirrors the server's "locationId is required for
+                         BulkQty items". */
+                      required
+                      error={issueErrors.locationId}
+                    >
+                      <SelectField
                         value={issueForm.locationId ? String(issueForm.locationId) : ''}
-                        onValueChange={(value) => setIssueForm((f) => ({ ...f, locationId: Number(value) }))}
+                        onValueChange={(value) => handleIssueChange('locationId', Number(value))}
+                        onBlur={() => handleIssueBlur('locationId')}
+                        placeholder="— Select location —"
                       >
-                        <SelectTrigger>
-                          <SelectValue placeholder="— Select location —" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {locations.map((l) => (
-                            <SelectItem key={l.id} value={String(l.id)}>{l.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                        {locations.map((l) => (
+                          <SelectItem key={l.id} value={String(l.id)}>{l.name}</SelectItem>
+                        ))}
+                      </SelectField>
+                    </FormField>
                   </div>
                 )}
 
                 {/* Assignee */}
-                <div>
-                  <Label className="mb-1 flex items-center">
-                    <User className="w-4 h-4 inline mr-1" /> Assign To (Employee ID)
-                  </Label>
+                <FormField
+                  id="assigneeId"
+                  label={<><User className="w-4 h-4 inline mr-1" /> Assign To (Employee ID)</>}
+                  required={isIssueFieldRequired('assigneeId')}
+                  error={issueErrors.assigneeId}
+                >
                   <Input
                     type="number"
                     min={1}
-                    value={issueForm.assigneeId || ''}
-                    onChange={(e) => setIssueForm((f) => ({ ...f, assigneeId: Number(e.target.value) }))}
+                    value={issueForm.assigneeId ?? ''}
+                    onChange={(e) =>
+                      handleIssueChange(
+                        'assigneeId',
+                        e.target.value === '' ? undefined : Number(e.target.value),
+                      )
+                    }
+                    onBlur={() => handleIssueBlur('assigneeId')}
                     placeholder="Employee ID"
-                    required
                   />
-                </div>
+                </FormField>
 
                 {/* Due Date — only for Returnable */}
                 {selectedCatalog.returnPolicy === 'returnable' && (
-                  <div>
-                    <Label className="mb-1 flex items-center">
-                      <Calendar className="w-4 h-4 inline mr-1" /> Due Date
-                    </Label>
+                  <FormField
+                    id="dueDate"
+                    label={<><Calendar className="w-4 h-4 inline mr-1" /> Due Date</>}
+                    required={isIssueFieldRequired('dueDate')}
+                    error={issueErrors.dueDate}
+                  >
                     <Input
                       type="date"
                       value={issueForm.dueDate || ''}
-                      onChange={(e) => setIssueForm((f) => ({ ...f, dueDate: e.target.value }))}
+                      onChange={(e) => handleIssueChange('dueDate', e.target.value)}
+                      onBlur={() => handleIssueBlur('dueDate')}
                     />
-                  </div>
+                  </FormField>
                 )}
 
                 {/* Notes */}
-                <div>
-                  <Label className="mb-1">Notes</Label>
+                <FormField
+                  id="notes"
+                  label="Notes"
+                  required={isIssueFieldRequired('notes')}
+                  error={issueErrors.notes}
+                >
                   <Textarea
                     value={issueForm.notes || ''}
-                    onChange={(e) => setIssueForm((f) => ({ ...f, notes: e.target.value }))}
+                    onChange={(e) => handleIssueChange('notes', e.target.value)}
+                    onBlur={() => handleIssueBlur('notes')}
                     rows={2}
                   />
-                </div>
+                </FormField>
 
                 <Button type="submit" disabled={loading} className="w-full">
                   {loading ? 'Processing...' : 'Issue Item'}
@@ -461,7 +617,13 @@ const IssueReturnPage: React.FC = () => {
                       type="button"
                       onClick={() => {
                         setSelectedAssignment(a);
-                        setReturnForm({ assignmentId: a.id, quantity: remaining });
+                        resetReturnForm({
+                          assignmentId: a.id,
+                          quantity: remaining,
+                          condition: 'good',
+                          returnToLocationId: undefined,
+                          notes: '',
+                        });
                       }}
                       className={`w-full text-left px-4 py-3 hover:bg-accent transition-colors ${selectedAssignment?.id === a.id ? 'bg-accent ring-2 ring-green-500 ring-inset' : ''
                         }`}
@@ -518,68 +680,90 @@ const IssueReturnPage: React.FC = () => {
 
                   {/* Quantity (for BulkQty partial returns) */}
                   {selectedAssignment.catalogItem?.trackMode === 'bulk_qty' && (
-                    <div>
-                      <Label className="mb-1">Return Quantity</Label>
+                    <FormField
+                      id="quantity"
+                      label="Return Quantity"
+                      /* UI-only rule (the service defaults it to 1); the
+                         remaining-quantity ceiling mirrors processReturn(). */
+                      required
+                      error={returnErrors.quantity}
+                    >
                       <Input
                         type="number"
                         min={1}
                         max={selectedAssignment.quantity - selectedAssignment.returnedQuantity}
-                        value={returnForm.quantity || ''}
-                        onChange={(e) => setReturnForm((f) => ({ ...f, quantity: Number(e.target.value) }))}
-                        required
+                        value={returnForm.quantity ?? ''}
+                        onChange={(e) =>
+                          handleReturnChange(
+                            'quantity',
+                            e.target.value === '' ? undefined : Number(e.target.value),
+                          )
+                        }
+                        onBlur={() => handleReturnBlur('quantity')}
                       />
-                    </div>
+                    </FormField>
                   )}
 
                   {/* Condition */}
-                  <div>
-                    <Label className="mb-1">Condition on Return</Label>
-                    <Select
+                  <FormField
+                    id="condition"
+                    label="Condition on Return"
+                    required={isReturnFieldRequired('condition')}
+                    error={returnErrors.condition}
+                  >
+                    <SelectField
                       value={returnForm.condition || 'good'}
-                      onValueChange={(value) => setReturnForm((f) => ({ ...f, condition: value as any }))}
+                      onValueChange={(value) => handleReturnChange('condition', value)}
+                      onBlur={() => handleReturnBlur('condition')}
                     >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="new">New</SelectItem>
-                        <SelectItem value="excellent">Excellent</SelectItem>
-                        <SelectItem value="good">Good</SelectItem>
-                        <SelectItem value="fair">Fair</SelectItem>
-                        <SelectItem value="poor">Poor</SelectItem>
-                        <SelectItem value="damaged">Damaged</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                      <SelectItem value="new">New</SelectItem>
+                      <SelectItem value="excellent">Excellent</SelectItem>
+                      <SelectItem value="good">Good</SelectItem>
+                      <SelectItem value="fair">Fair</SelectItem>
+                      <SelectItem value="poor">Poor</SelectItem>
+                      <SelectItem value="damaged">Damaged</SelectItem>
+                    </SelectField>
+                  </FormField>
 
                   {/* Return To Location */}
-                  <div>
-                    <Label className="mb-1">Return To Location</Label>
-                    <Select
+                  <FormField
+                    id="returnToLocationId"
+                    label="Return To Location"
+                    required={isReturnFieldRequired('returnToLocationId')}
+                    error={returnErrors.returnToLocationId}
+                  >
+                    <SelectField
                       value={returnForm.returnToLocationId ? String(returnForm.returnToLocationId) : 'same'}
-                      onValueChange={(value) => setReturnForm((f) => ({ ...f, returnToLocationId: value === 'same' ? undefined : Number(value) }))}
+                      onValueChange={(value) =>
+                        handleReturnChange(
+                          'returnToLocationId',
+                          value === 'same' ? undefined : Number(value),
+                        )
+                      }
+                      onBlur={() => handleReturnBlur('returnToLocationId')}
+                      placeholder="— Same as issue location —"
                     >
-                      <SelectTrigger>
-                        <SelectValue placeholder="— Same as issue location —" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="same">— Same as issue location —</SelectItem>
-                        {locations.map((l) => (
-                          <SelectItem key={l.id} value={String(l.id)}>{l.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                      <SelectItem value="same">— Same as issue location —</SelectItem>
+                      {locations.map((l) => (
+                        <SelectItem key={l.id} value={String(l.id)}>{l.name}</SelectItem>
+                      ))}
+                    </SelectField>
+                  </FormField>
 
                   {/* Notes */}
-                  <div>
-                    <Label className="mb-1">Notes</Label>
+                  <FormField
+                    id="returnNotes"
+                    label="Notes"
+                    required={isReturnFieldRequired('notes')}
+                    error={returnErrors.notes}
+                  >
                     <Textarea
                       value={returnForm.notes || ''}
-                      onChange={(e) => setReturnForm((f) => ({ ...f, notes: e.target.value }))}
+                      onChange={(e) => handleReturnChange('notes', e.target.value)}
+                      onBlur={() => handleReturnBlur('notes')}
                       rows={2}
                     />
-                  </div>
+                  </FormField>
 
                   <Button type="submit" variant="success" disabled={loading} className="w-full">
                     {loading ? 'Processing...' : 'Process Return'}

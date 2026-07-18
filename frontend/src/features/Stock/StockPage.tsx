@@ -8,12 +8,13 @@ import { useToast } from '../../context/ToastContext';
 import { PageHeader } from '../../components/shared/PageHeader';
 import { Card, CardContent } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
-import { Label } from '../../components/ui/label';
 import { Button } from '../../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { Pagination } from '../../components/shared/Pagination';
+import { FormField } from '../../components/shared/FormField';
+import { useForm } from '../../hooks/useForm';
 
 type Tab = 'levels' | 'ledger';
 
@@ -26,68 +27,67 @@ const StockPage: React.FC = () => {
   const [stockTotal, setStockTotal] = useState(0);
   const [stockSearch, setStockSearch] = useState('');
   const [stockPage, setStockPage] = useState(1);
+  const [stockPageSize, setStockPageSize] = useState(25);
 
   // Ledger
   const [ledger, setLedger] = useState<StockLedgerEntry[]>([]);
   const [ledgerTotal, setLedgerTotal] = useState(0);
   const [ledgerPage, setLedgerPage] = useState(1);
+  const [ledgerPageSize, setLedgerPageSize] = useState(50);
 
   const [locations, setLocations] = useState<Location[]>([]);
   const [locationFilter, setLocationFilter] = useState<number | ''>('');
 
-  // Adjust Stock modal
+  // Adjust Stock modal. Quantity uses 0 as its "empty" sentinel, so its
+  // required check lives in a `custom` rule, which runs on empty values.
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [adjustTarget, setAdjustTarget] = useState<StockByLocation | null>(null);
-  const [adjustQuantity, setAdjustQuantity] = useState(0);
-  const [adjustNotes, setAdjustNotes] = useState('');
+  const adjustForm = useForm({ quantity: 0, notes: '' }, {
+    quantity: { label: 'New quantity', custom: (v) => (!v || v <= 0 ? 'New quantity must be greater than zero.' : null) },
+    notes: { label: 'Reason', custom: (v) => (!String(v ?? '').trim() ? 'Reason is required.' : null) },
+  });
+  const adjustQuantity = adjustForm.values.quantity;
+  const adjustNotes = adjustForm.values.notes;
   const [adjusting, setAdjusting] = useState(false);
 
   useEffect(() => { locationsService.getAll().then(setLocations).catch(() => { }); }, []);
 
   const fetchStocks = useCallback(async () => {
     try {
-      const query: StockQuery = { page: stockPage, limit: 25 };
+      const query: StockQuery = { page: stockPage, limit: stockPageSize };
       if (stockSearch) query.search = stockSearch;
       if (locationFilter) query.locationId = locationFilter as number;
       const result = await stockService.getAll(query);
       setStocks(result.data);
       setStockTotal(result.total);
     } catch { showToast('Failed to load stock levels', 'error'); }
-  }, [stockPage, stockSearch, locationFilter]);
+  }, [stockPage, stockPageSize, stockSearch, locationFilter]);
 
   const fetchLedger = useCallback(async () => {
     try {
-      const query: LedgerQuery = { page: ledgerPage, limit: 50 };
+      const query: LedgerQuery = { page: ledgerPage, limit: ledgerPageSize };
       if (locationFilter) query.locationId = locationFilter as number;
       const result = await stockService.getLedger(query);
       setLedger(result.data);
       setLedgerTotal(result.total);
     } catch { showToast('Failed to load ledger', 'error'); }
-  }, [ledgerPage, locationFilter]);
+  }, [ledgerPage, ledgerPageSize, locationFilter]);
 
   useEffect(() => { if (tab === 'levels') fetchStocks(); }, [fetchStocks, tab]);
   useEffect(() => { if (tab === 'ledger') fetchLedger(); }, [fetchLedger, tab]);
 
-  const stockPages = Math.ceil(stockTotal / 25);
-  const ledgerPages = Math.ceil(ledgerTotal / 50);
+  const stockPages = Math.ceil(stockTotal / stockPageSize);
+  const ledgerPages = Math.ceil(ledgerTotal / ledgerPageSize);
 
   const openAdjustModal = (stock: StockByLocation) => {
     setAdjustTarget(stock);
-    setAdjustQuantity(stock.quantity);
-    setAdjustNotes('');
+    adjustForm.resetForm({ quantity: stock.quantity, notes: '' });
     setShowAdjustModal(true);
   };
 
   const handleAdjust = async () => {
     if (!adjustTarget) return;
-    if (!adjustQuantity || adjustQuantity <= 0) {
-      showToast('Quantity must be greater than zero', 'error');
-      return;
-    }
-    if (!adjustNotes.trim()) {
-      showToast('Please provide a reason for this adjustment', 'error');
-      return;
-    }
+    if (!adjustForm.validateForm()) return;
     try {
       setAdjusting(true);
       await stockService.adjust({
@@ -201,7 +201,8 @@ const StockPage: React.FC = () => {
               totalPages={stockPages}
               onPageChange={setStockPage}
               totalItems={stockTotal}
-              pageSize={25}
+              pageSize={stockPageSize}
+              onPageSizeChange={(size) => { setStockPageSize(size); setStockPage(1); }}
             />
           </CardContent>
         </Card>
@@ -251,7 +252,8 @@ const StockPage: React.FC = () => {
               totalPages={ledgerPages}
               onPageChange={setLedgerPage}
               totalItems={ledgerTotal}
-              pageSize={50}
+              pageSize={ledgerPageSize}
+              onPageSizeChange={(size) => { setLedgerPageSize(size); setLedgerPage(1); }}
             />
           </CardContent>
         </Card>
@@ -267,25 +269,24 @@ const StockPage: React.FC = () => {
             <div className="text-sm text-muted-foreground">
               <MapPin className="w-3 h-3 inline mr-1" />{adjustTarget?.location?.name} · Current quantity: <span className="font-bold text-foreground">{adjustTarget?.quantity}</span>
             </div>
-            <div className="space-y-2">
-              <Label>New Quantity</Label>
+            <FormField id="stockAdjustQuantity" label="New Quantity" required error={adjustForm.errors.quantity}>
               <Input
                 type="number"
                 min={1}
                 value={adjustQuantity}
-                onChange={(e) => setAdjustQuantity(parseInt(e.target.value) || 0)}
+                onChange={(e) => adjustForm.handleChange('quantity', parseInt(e.target.value) || 0)}
+                onBlur={() => adjustForm.handleBlur('quantity')}
               />
-            </div>
-            <div className="space-y-2">
-              <Label>Reason <span className="text-destructive">*</span></Label>
+            </FormField>
+            <FormField id="stockAdjustNotes" label="Reason" required error={adjustForm.errors.notes}>
               <textarea
                 className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 value={adjustNotes}
-                onChange={(e) => setAdjustNotes(e.target.value)}
+                onChange={(e) => adjustForm.handleChange('notes', e.target.value)}
+                onBlur={() => adjustForm.handleBlur('notes')}
                 placeholder="e.g. stock-take correction, damaged goods write-off..."
-                required
               />
-            </div>
+            </FormField>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAdjustModal(false)}>Cancel</Button>
